@@ -8,7 +8,7 @@ import traceback
 
 from collections import UserDict
 from .threads import SqliteMultiThread
-from .connectors import Table
+from .connectors import Table, JSON_Storage
 
 
 class Database(UserDict):
@@ -82,8 +82,17 @@ class Database(UserDict):
     def __str__(self):
         return f'Database: {self.filename}'
 
-    def __getitem__(self, table_name: str):
-        return Table(table_name, self.conn, self.flag)
+    def __getitem__(self, table_name: str, astype: str = 'table'):
+        if astype == 'table':
+            return Table(table_name, self.conn, self.flag)
+        if astype == 'json':
+            if table_name in self.keys():
+                GET_COLS = f'PRAGMA TABLE_INFO("{table_name}")'
+                data = self.conn.select(GET_COLS)
+                if len(data) > 2:
+                    raise TypeError(f"{table_name} has more than 2 columns, can't be cast as JSON Storage")
+                return JSON_Storage(table_name, self.conn, self.flag)
+            return JSON_Storage(table_name, self.conn, self.flag)
 
     def __repr__(self):
         return self.__str__()

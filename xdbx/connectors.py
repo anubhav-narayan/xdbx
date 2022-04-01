@@ -312,3 +312,109 @@ class Table(UserDict):
         VALUES = ',\n'.join([str(x) for x in self[::]])
         INSERT = f'INSERT INTO "{self.name}" VALUES\n' + VALUES
         return f'{CREATE};\n{INSERT};'
+
+
+class JSON_Storage():
+    def __init__(self, name: str, connection: SqliteMultiThread, flag: str,
+                 primary_key_dtype: str = 'TEXT'):
+        self.__conn = connection
+        self.flag = flag
+        self.name = name.replace('"', '""')
+        # Check for the table or create new with
+        # two columns named key(Primary Key) and
+        # col1
+        GET_ITEM = 'SELECT name FROM sqlite_master WHERE name = ?'
+        item = self.__conn.select_one(GET_ITEM, (name,))
+        if item is None:
+            MAKE_TABLE = f'''\
+            CREATE TABLE IF NOT EXISTS "{self.name}" (
+                "key" {primary_key_dtype} PRIMARY KEY,
+                "object" TEXT
+            )
+            '''
+            self.__conn.execute(MAKE_TABLE)
+            self.__conn.commit()
+
+    def describe(self):
+        GET_COLS = f'PRAGMA TABLE_INFO("{self.name}")'
+        data = self.__conn.select(GET_COLS)
+        head = ['cid', 'name', 'type', 'notnull', 'default', 'primary key']
+        from tabulate import tabulate
+        return tabulate([x for x in data], head, tablefmt='grid')
+
+    @property
+    def xschema(self):
+        GET_SQL = f'SELECT sql FROM sqlite_master WHERE "name" = "{self.name}"'
+        schema = self.__conn.select_one(GET_SQL)[0]
+        GET_COLS = f'PRAGMA TABLE_INFO("{self.name}")'
+        data = self.__conn.select(GET_COLS)
+        regex = r'\((?P<cols>.*)\)'
+        import re
+        cols = re.findall(regex, schema)[0].split(', ')
+        return {
+            'name': self.name,
+            'cols': cols,
+            'sql': schema
+        }
+
+    def __enter__(self):
+        if not hasattr(self, 'conn') or self.conn is None:
+            raise RuntimeError('Instance not connected')
+        return self
+
+    def __exit__(self, *exc_info):
+        if self.__conn.autocommit:
+            self.commit()
+
+    def __repr__(self):
+        from tabulate import tabulate
+        header = self.columns
+        items = self.__conn.select(f'SELECT `key` FROM "{self.name}"')
+        data = [x for x in items] if items is not None else []
+        return tabulate(data, header, tablefmt='grid')
+
+    def __len__(self):
+        GET_LEN = f'SELECT COUNT(*) FROM "{self.name}"'
+        rows = self.__conn.select_one(GET_LEN)[0]
+        return rows if rows is not None else 0
+
+    def __contains__(self, key):
+        HAS_ITEM = f'SELECT 1 FROM "{self.name}" WHERE "key" = ?'
+        return self.__conn.select_one(HAS_ITEM, (key,)) is not None
+
+    def keys(self):
+        '''
+        Return Primary Keys Generator
+        '''
+        GET_KEYS = f'SELECT "key" FROM "{self.name}" ORDER BY rowid'
+        for x in self.__conn.select(GET_KEYS):
+            yield x[0]
+
+    def __setitem__(self, key, value: dict):
+        if self.flag == 'r':
+            raise RuntimeError('Refusing to write in read-only mode')
+
+        if type(value) == dict:
+            import json
+            if key not in self:
+                data = (key, json.dumps(value))
+                ADD_ITEM = f'REPLACE INTO "{self.name}"\
+                 ("key", "object") VALUES ({key}, {value})'
+            else:
+                ADD_ITEM = f'UPDATE "{self.name}"\
+                 SET "value" = ? WHERE "key" = ?'
+                data = (value, key)
+        else:
+            raise TypeError("Incorrect value format, use dict")
+        self.__conn.execute(ADD_ITEM, data)
+        if self.__conn.autocommit:
+            self.commit()
+
+    def __getitem__(self, key):
+        # args is key
+        GET_ITEM = f'SELECT value FROM "{self.name}" WHERE "key" = ?'
+        item = self.__conn.select_one(GET_ITEM, (key,))
+        if item is None:
+            raise KeyError(key)
+        return item[0]
+
