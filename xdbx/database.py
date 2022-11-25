@@ -28,18 +28,9 @@ class Database(UserDict):
     or if you need performance and don't care about crash-consistency.
 
     The `flag` parameter. Exactly one of:
-      'c': default mode, open for read/write, creating the dbif necessary.
+      'c': default mode, open for read/write, creating the db if necessary.
       'w': open for r/w, but drop contents first (start with empty table)
       'r': open as read-only
-
-    The `encode` and `decode` parameters are used to customize how the
-    values are serialized and deserialized.
-    The `encode` parameter must be a function that takes a single Python
-    object and returns a serialized representation.
-    The `decode` function must be a function that takes the serialized
-    representation produced by `encode` and returns a deserialized Python
-    object.
-    The default is to use pickle.
 
     The `timeout` defines the maximum time (in seconds) to wait for
     initial Thread startup.
@@ -60,7 +51,8 @@ class Database(UserDict):
                 raise RuntimeError(
                     f'Error! The directory does not exist, {dir_}'
                 )
-        self.filename = filename
+        self.filename = filename if filename == ':memory:'\
+            else os.path.abspath(filename)
         self.autocommit = autocommit
         self.journal_mode = journal_mode
         self.timeout = timeout
@@ -82,23 +74,26 @@ class Database(UserDict):
     def __str__(self):
         return f'Database: {self.filename}'
 
-    def __getitem__(self, table_name: str, astype: str = 'table'):
-        if astype == 'table':
-            return Table(table_name, self.conn, self.flag)
-        if astype == 'json':
-            if table_name in self.keys():
-                GET_COLS = f'PRAGMA TABLE_INFO("{table_name}")'
-                data = self.conn.select(GET_COLS)
-                if len(data) > 2:
-                    raise TypeError(f"{table_name} has more than 2 columns, can't be cast as JSON Storage")
+    def __getitem__(self, *args):
+        print(args[0], len(args[0]))
+        if len(args[0]) == 1:
+            table_name = args[0][0]
+            print(args, len(args))
+            # return Table(table_name, self.conn, self.flag)
+        elif len(args[0]) == 2:
+            table_name = args[0][0]
+            astype = args[0][1]
+            if astype == 'table':
+                return Table(table_name, self.conn, self.flag)
+            elif astype == 'json':
                 return JSON_Storage(table_name, self.conn, self.flag)
-            return JSON_Storage(table_name, self.conn, self.flag)
 
     def __repr__(self):
         return self.__str__()
 
     def keys(self):
-        GET_TABLES = 'SELECT name FROM sqlite_master WHERE type="table"'
+        GET_TABLES = 'SELECT name FROM sqlite_master WHERE type="table"\
+                      ORDER BY rowid'
         for key in self.conn.select(GET_TABLES):
             yield key[0]
 
@@ -108,16 +103,26 @@ class Database(UserDict):
 
     @property
     def storages(self):
-        GET_TABLES = 'SELECT * FROM sqlite_master WHERE type="table" ORDER BY rowid'
-        res = self.conn.select(GET_TABLES)
-        res = [x for x in res]
-        return res
+        return [x for x in self.keys()]
+
+    def close(self, do_log=True, force=False):
+        if do_log:
+            logger.debug("closing %s" % self)
+        if hasattr(self, 'conn') and self.conn is not None:
+            if self.conn.autocommit and not force:
+                # typically calls to commit are non-blocking when autocommit is
+                # used.  However, we need to block on close() to ensure any
+                # awaiting exceptions are handled and that all data is
+                # persisted to disk before returning.
+                self.conn.commit(blocking=True)
+            self.conn.close(force=force)
+            self.conn = None
 
     def __delitem__(self, table_name: str):
         if self.flag == 'r':
             raise RuntimeError('Refusing to delete in read-only mode')
 
         DEL_ITEM = f'DROP TABLE "{table_name}"'
-        self.__conn.execute(DEL_ITEM)
-        if self.__conn.autocommit:
+        self.conn.execute(DEL_ITEM)
+        if self.conn.autocommit:
             self.commit()

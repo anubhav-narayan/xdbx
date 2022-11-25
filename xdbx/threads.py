@@ -233,6 +233,7 @@ class SqliteMultiThread(Thread):
     sequentially in a separate thread (in the same order they arrived).
 
     """
+
     def __init__(self, filename, autocommit, journal_mode, timeout):
         super(SqliteMultiThread, self).__init__()
         self.filename = filename

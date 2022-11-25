@@ -74,16 +74,19 @@ class Table(UserDict):
                 raise ValueError("Incorrect number of values")
             data = [key]
             data.extend([x for x in value])
-            ADD_ITEM = f'REPLACE INTO "{self.name}" {tuple(self.columns)} VALUES ({", ".join(["?" for x in data])})'
+            ADD_ITEM = f'REPLACE INTO "{self.name}" {tuple(self.columns)}'\
+                + f' VALUES ({", ".join(["?" for x in data])})'
         elif type(value) == dict:
             if key not in self:
                 value[self.columns[0]] = key
                 refs = [x for x in value]
                 data = [x for x in value.values()]
-                ADD_ITEM = f'REPLACE INTO "{self.name}" {tuple(refs)} VALUES ({", ".join(["?" for x in data])})'
+                ADD_ITEM = f'REPLACE INTO "{self.name}" {tuple(refs)}'\
+                    + f' VALUES ({", ".join(["?" for x in data])})'
             else:
                 data = [f'{x} = ?' for x in value]
-                ADD_ITEM = f'UPDATE "{self.name}" SET {", ".join(data)} WHERE {self.columns[0]} = ?'
+                ADD_ITEM = f'UPDATE "{self.name}" SET {", ".join(data)}'\
+                    + f' WHERE {self.columns[0]} = ?'
                 data = [x for x in value.values()]
                 data.append(key)
         else:
@@ -117,7 +120,8 @@ class Table(UserDict):
         # column select
         if len(args) == 2:
             if args[0] in self:
-                GET_ITEM = f'SELECT "{args[1]}" FROM "{self.name}" WHERE "{self.columns[0]}" = ?'
+                GET_ITEM = f'SELECT "{args[1]}" FROM "{self.name}"\
+                             WHERE "{self.columns[0]}" = ?'
                 item = self.__conn.select_one(GET_ITEM, (args[0], ))
                 if item is None:
                     raise KeyError(args[0])
@@ -182,7 +186,8 @@ class Table(UserDict):
         '''
         Return Primary Keys Generator
         '''
-        GET_KEYS = f'SELECT "{self.columns[0]}" FROM "{self.name}" ORDER BY rowid'
+        GET_KEYS = f'SELECT "{self.columns[0]}" FROM "{self.name}"\
+                     ORDER BY rowid'
         for x in self.__conn.select(GET_KEYS):
             yield x[0]
 
@@ -314,7 +319,7 @@ class Table(UserDict):
         return f'{CREATE};\n{INSERT};'
 
 
-class JSON_Storage():
+class JSON_Storage(UserDict):
     def __init__(self, name: str, connection: SqliteMultiThread, flag: str,
                  primary_key_dtype: str = 'TEXT'):
         self.__conn = connection
@@ -399,11 +404,11 @@ class JSON_Storage():
             if key not in self:
                 data = (key, json.dumps(value))
                 ADD_ITEM = f'REPLACE INTO "{self.name}"\
-                 ("key", "object") VALUES ({key}, {value})'
+                 ("key", "object") VALUES (?, ?)'
             else:
+                data = (json.dumps(value), key)
                 ADD_ITEM = f'UPDATE "{self.name}"\
-                 SET "value" = ? WHERE "key" = ?'
-                data = (value, key)
+                 SET "object" = ? WHERE "key" = ?'
         else:
             raise TypeError("Incorrect value format, use dict")
         self.__conn.execute(ADD_ITEM, data)
@@ -412,9 +417,62 @@ class JSON_Storage():
 
     def __getitem__(self, key):
         # args is key
-        GET_ITEM = f'SELECT value FROM "{self.name}" WHERE "key" = ?'
+        import json
+        GET_ITEM = f'SELECT object FROM "{self.name}" WHERE "key" = ?'
         item = self.__conn.select_one(GET_ITEM, (key,))
         if item is None:
             raise KeyError(key)
-        return item[0]
+        return json.loads(item[0])
 
+    @property
+    def columns(self) -> list:
+        '''
+        Return s a list of column names
+        '''
+        GET_COLS = f'PRAGMA TABLE_INFO("{self.name}")'
+        data = self.__conn.select(GET_COLS)
+        return [x[1] for x in data]
+
+    def commit(self, blocking=True):
+        '''
+        From sqlitedict
+        Persist all data to disk.
+
+        When `blocking` is False, the commit command is queued, but the data is
+        not guaranteed persisted (default implication when autocommit=True).
+        '''
+        if self.__conn is not None:
+            self.__conn.commit(blocking)
+
+    def to_dict(self):
+        ret_dict = {}
+        for x in self.keys():
+            ret_dict[x] = self[x]
+        return ret_dict
+
+    def to_json(self):
+        import json
+        return json.dumps(self.to_dict())
+
+    def update(self, dict2: dict):
+        '''
+        Update the Storage
+        '''
+        def dict_merge(a: dict, b: dict):
+            '''
+            Recursive Dict Merge
+            '''
+            from copy import deepcopy
+            if not isinstance(b, dict):
+                return b
+            result = deepcopy(a)
+            for k, v in b.items():
+                if k in result and isinstance(result[k], dict):
+                    result[k] = dict_merge(result[k], v)
+                else:
+                    result[k] = deepcopy(v)
+            return result
+
+        res_dict = dict_merge(self.to_dict(), dict2)
+        for x in res_dict.keys():
+            self[x] = res_dict[x]
