@@ -20,3 +20,5 @@ for key, value in mydict.items():
 some_key any_picklable_object
 print(len(mydict)) # etc. all dict functions work
 mydict.close()
+```
+

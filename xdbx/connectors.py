@@ -38,14 +38,9 @@ class Table(UserDict):
     def xschema(self):
         GET_SQL = f'SELECT sql FROM sqlite_master WHERE "name" = "{self.name}"'
         schema = self.__conn.select_one(GET_SQL)[0]
-        GET_COLS = f'PRAGMA TABLE_INFO("{self.name}")'
-        data = self.__conn.select(GET_COLS)
-        regex = r'\((?P<cols>.*)\)'
-        import re
-        cols = re.findall(regex, schema)[0].split(', ')
         return {
             'name': self.name,
-            'cols': cols,
+            'cols': self.columns,
             'sql': schema
         }
 
@@ -59,11 +54,7 @@ class Table(UserDict):
             self.commit()
 
     def __repr__(self):
-        from tabulate import tabulate
-        header = self.columns
-        items = self.__conn.select(f'SELECT * FROM "{self.name}"')
-        data = [x for x in items] if items is not None else []
-        return tabulate(data, header, tablefmt='grid')
+        return f'Table: {self.name}'
 
     def __setitem__(self, key, value):
         if self.flag == 'r':
@@ -95,61 +86,79 @@ class Table(UserDict):
         if self.__conn.autocommit:
             self.commit()
 
-    # Refactor This
+    def get_idx(self, idx):
+        GET_ITEM = f'SELECT "_rowid_", * FROM "{self.name}" WHERE "_rowid_" = ?'
+        item = self.__conn.select_one(GET_ITEM, (idx, ))
+        if item is None:
+            raise KeyError(args[0])
+        return item
+
+    def get_slice(self, slc):
+        GET_ITEM = f'SELECT * FROM "{self.name}"'\
+                 + f'LIMIT {slc.start or 0} '\
+                 + f', '\
+                 + f'{slc.stop-1 if slc.stop is not None else 4999}'
+        item = self.__conn.select(GET_ITEM)
+        if item is None:
+            raise KeyError(slc[0])
+        return [x for x in item][::slc.step]
+
+    def get_col(self, col):
+        GET_ITEM = f'SELECT "{col}" FROM "{self.name}"'\
+                 + 'ORDER BY rowid'
+        item = self.__conn.select(GET_ITEM)
+        return [x[0] for x in item]
+
+    def get_col_sel(self, col, idx):
+        cols = ', '.join([x for x in col])
+        GET_ITEM = f'SELECT {cols} FROM "{self.name}"'\
+                 + f'WHERE "{self.columns[0]}" = ?'\
+                 + 'ORDER BY rowid'
+        item = self.__conn.select_one(GET_ITEM, (idx, ))
+        if item is None:
+            raise KeyError(idx)
+        return item
+
+    def get_col_filt(self, col, slc):
+        if slc.stop is None:
+            GET_ITEM = f'SELECT * FROM "{self.name}" WHERE '\
+                     + f'"{col}" >= {slc.start} '
+            item = self.__conn.select(GET_ITEM)
+            if item is None:
+                raise KeyError("No entry for given condition")
+            return [x for x in item][::slc.step]
+        elif slc.start is None:
+            GET_ITEM = f'SELECT * FROM "{self.name}" WHERE '\
+                     + f'"{col}" < {slc.stop}'
+            item = self.__conn.select(GET_ITEM)
+            if item is None:
+                raise KeyError("No entry for given condition")
+            return [x for x in item][::slc.step]
+        else:
+            GET_ITEM = f'SELECT * FROM "{self.name}" WHERE '\
+                     + f'"{col}" BETWEEN {slc.start} '\
+                     + f'AND {slc.stop-1}'
+            item = self.__conn.select(GET_ITEM)
+            if item is None:
+                raise KeyError("No entry for given condition")
+            return [x for x in item][::slc.step]
+
     def __getitem__(self, args):
         # args is key
         if type(args) is not tuple:
             if isinstance(args, slice):
-                GET_ITEM = f'SELECT * FROM "{self.name}" WHERE '\
-                         + f'"{self.columns[0]}" BETWEEN {args.start or min(self.keys())} '\
-                         + f'AND {args.stop-1 if args.stop is not None else max(self.keys())}'
-                item = self.__conn.select(GET_ITEM)
-                if item is None:
-                    raise KeyError(args[0])
-                return [x for x in item][::args.step]
-            elif args in self.columns:
-                GET_ITEM = f'SELECT "{args}" FROM "{self.name}"'
-                item = self.__conn.select(GET_ITEM)
-                return [x[0] for x in item]
-            else:
-                GET_ITEM = f'SELECT * FROM "{self.name}" WHERE "{self.columns[0]}" = ?'
-                item = self.__conn.select_one(GET_ITEM, (args, ))
-                if item is None:
-                    raise KeyError(args[0])
-                return item[1:]
+                return self.get_slice(args)
+            elif isinstance(args, int):
+                return self.get_idx(args)
+            elif isinstance(args, str) and args in self.columns:
+                return self.get_col(args)
         # column select
-        if len(args) == 2:
+        if len(args) >= 2:
             if args[0] in self:
-                GET_ITEM = f'SELECT "{args[1]}" FROM "{self.name}"\
-                             WHERE "{self.columns[0]}" = ?'
-                item = self.__conn.select_one(GET_ITEM, (args[0], ))
-                if item is None:
-                    raise KeyError(args[0])
-                return item
+                return self.get_col_sel(args[1:], args[0])
             elif args[0] in self.columns:
                 if isinstance(args[1], slice):
-                    if args[1].stop is None:
-                        GET_ITEM = f'SELECT * FROM "{self.name}" WHERE '\
-                                 + f'"{args[0]}" >= {args[1].start} '
-                        item = self.__conn.select(GET_ITEM)
-                        if item is None:
-                            raise KeyError("No entry for given condition")
-                        return [x for x in item]
-                    elif args[1].start is None:
-                        GET_ITEM = f'SELECT * FROM "{self.name}" WHERE '\
-                                 + f'"{args[0]}" < {args[1].stop}'
-                        item = self.__conn.select(GET_ITEM)
-                        if item is None:
-                            raise KeyError("No entry for given condition")
-                        return [x for x in item]
-                    else:
-                        GET_ITEM = f'SELECT * FROM "{self.name}" WHERE '\
-                                 + f'"{args[0]}" BETWEEN {args[1].start} '\
-                                 + f'AND {args[1].stop-1}'
-                        item = self.__conn.select(GET_ITEM)
-                        if item is None:
-                            raise KeyError("No entry for given condition")
-                        return [x for x in item]
+                    return self.get_col_filt(args[0], args[1])
                 else:
                     GET_ITEM = f'SELECT * FROM "{self.name}" WHERE '\
                              + f'"{args[0]}" = ?'
@@ -220,7 +229,7 @@ class Table(UserDict):
         if self.flag == 'r':
             raise RuntimeError('Refusing to delete in read-only mode')
 
-        NEW_COL = f'ALTER TABLE "{self.name}" ADD COLUMN "{colname}" TEXT'
+        NEW_COL = f'ALTER TABLE "{self.name}" ADD COLUMN "{colname}" {dtype}'
         self.__conn.execute(NEW_COL)
         if self.__conn.autocommit:
             self.commit()
@@ -255,11 +264,6 @@ class Table(UserDict):
         GET_LEN = f'SELECT COUNT(*) FROM "{self.name}"'
         rows = self.__conn.select_one(GET_LEN)[0]
         return rows if rows is not None else 0
-
-    def query(self, query: str, select: bool = False):
-        if select:
-            return [x for x in self.__conn.select(query)]
-        self.__conn.execute(query)
 
     def commit(self, blocking=True):
         '''
@@ -351,14 +355,9 @@ class JSON_Storage(UserDict):
     def xschema(self):
         GET_SQL = f'SELECT sql FROM sqlite_master WHERE "name" = "{self.name}"'
         schema = self.__conn.select_one(GET_SQL)[0]
-        GET_COLS = f'PRAGMA TABLE_INFO("{self.name}")'
-        data = self.__conn.select(GET_COLS)
-        regex = r'\((?P<cols>.*)\)'
-        import re
-        cols = re.findall(regex, schema)[0].split(', ')
         return {
             'name': self.name,
-            'cols': cols,
+            'cols': self.columns,
             'sql': schema
         }
 
@@ -372,11 +371,7 @@ class JSON_Storage(UserDict):
             self.commit()
 
     def __repr__(self):
-        from tabulate import tabulate
-        header = self.columns
-        items = self.__conn.select(f'SELECT `key` FROM "{self.name}"')
-        data = [x for x in items] if items is not None else []
-        return tabulate(data, header, tablefmt='grid')
+        return f'JSON Storage: {self.name}'
 
     def __len__(self):
         GET_LEN = f'SELECT COUNT(*) FROM "{self.name}"'
@@ -386,6 +381,9 @@ class JSON_Storage(UserDict):
     def __contains__(self, key):
         HAS_ITEM = f'SELECT 1 FROM "{self.name}" WHERE "key" = ?'
         return self.__conn.select_one(HAS_ITEM, (key,)) is not None
+
+    def __iter__(self):
+        return self.keys()
 
     def keys(self):
         '''
@@ -476,3 +474,13 @@ class JSON_Storage(UserDict):
         res_dict = dict_merge(self.to_dict(), dict2)
         for x in res_dict.keys():
             self[x] = res_dict[x]
+
+    def to_sql(self):
+        '''
+        Returns the table in SQLite Syntax
+        '''
+        GET_SQL = f'SELECT sql FROM sqlite_master WHERE "name" = "{self.name}"'
+        CREATE = self.__conn.select_one(GET_SQL)[0]
+        VALUES = ',\n'.join([str((x, self[x])) for x in self])
+        INSERT = f'INSERT INTO "{self.name}" VALUES\n' + VALUES
+        return f'{CREATE};\n{INSERT};'

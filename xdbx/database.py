@@ -8,6 +8,7 @@ import traceback
 
 from collections import UserDict
 from .threads import SqliteMultiThread
+from .logger import logger
 from .connectors import Table, JSON_Storage
 
 
@@ -75,12 +76,10 @@ class Database(UserDict):
         return f'Database: {self.filename}'
 
     def __getitem__(self, *args):
-        print(args[0], len(args[0]))
-        if len(args[0]) == 1:
-            table_name = args[0][0]
-            print(args, len(args))
-            # return Table(table_name, self.conn, self.flag)
-        elif len(args[0]) == 2:
+        if type(args[0]) == str:  # Single arg
+            table_name = args[0]
+            return Table(table_name, self.conn, self.flag)
+        elif type(args[0]) == tuple:  # Type arg
             table_name = args[0][0]
             astype = args[0][1]
             if astype == 'table':
@@ -90,6 +89,14 @@ class Database(UserDict):
 
     def __repr__(self):
         return self.__str__()
+
+    def describe(self):
+        GET_ALL = 'SELECT * FROM sqlite_master\
+                   ORDER BY rowid'
+        head = ['type', 'name', 'tbl_name', 'rootpage']
+        items = self.conn.select(GET_ALL)
+        from tabulate import tabulate
+        return tabulate([x[:4] for x in items], head, tablefmt='grid')
 
     def keys(self):
         GET_TABLES = 'SELECT name FROM sqlite_master WHERE type="table"\
@@ -105,9 +112,23 @@ class Database(UserDict):
     def storages(self):
         return [x for x in self.keys()]
 
+    @property
+    def indices(self):
+        GET_INDEX = 'SELECT name FROM sqlite_master WHERE type="index"\
+                     ORDER BY rowid'
+        items = self.conn.select(GET_INDEX)
+        return [x[0] for x in items]
+
+    @property
+    def views(self):
+        GET_VIEW = 'SELECT name FROM sqlite_master WHERE type="view"\
+                    ORDER BY rowid'
+        items = self.conn.select(GET_VIEW)
+        return [x[0] for x in items]
+
     def close(self, do_log=True, force=False):
         if do_log:
-            logger.debug("closing %s" % self)
+            logger.debug(f"Closing {self}")
         if hasattr(self, 'conn') and self.conn is not None:
             if self.conn.autocommit and not force:
                 # typically calls to commit are non-blocking when autocommit is
