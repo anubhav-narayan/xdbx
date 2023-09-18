@@ -9,7 +9,7 @@ import traceback
 from collections import UserDict
 from .threads import SqliteMultiThread
 from .logger import logger
-from .connectors import Table, JSON_Storage
+from .connectors import Table, JSONStorage
 
 
 class Database(UserDict):
@@ -85,7 +85,22 @@ class Database(UserDict):
             if astype == 'table':
                 return Table(table_name, self.conn, self.flag)
             elif astype == 'json':
-                return JSON_Storage(table_name, self.conn, self.flag)
+                return JSONStorage(table_name, self.conn, self.flag)
+
+    def __setitem__(self, key, item):
+        if type(item) is Table or JSONStorage:
+            # Only copy schema not data
+            if item.filename is not self.filename:
+                COPY = item.xschema['sql']
+                key = key.replace('"', '""')
+                COPY.replace(f'{item.name}', f'{key}')
+                self.conn.execute(COPY)
+            elif item.name not in self:
+                # Fancy rename without data
+                COPY = item.xschema['sql']
+                key = key.replace('"', '""')
+                COPY.replace(f'{item.name}', f'{key}')
+                self.conn.execute(COPY)
 
     def __repr__(self):
         return self.__str__()

@@ -7,11 +7,20 @@ from collections import UserDict
 
 
 class Table(UserDict):
+    """
+    Connector Class for a SQLite Standard Table as UserDict
+
+    Usage:
+        db = Database()
+        tab = db['some_tab']
+    """
+
     def __init__(self, name: str, connection: SqliteMultiThread, flag: str,
                  primary_key_dtype: str = 'TEXT'):
         self.__conn = connection
         self.flag = flag
         self.name = name.replace('"', '""')
+        self.filename = self.__conn.filename
         # Check for the table or create new with
         # two columns named key(Primary Key) and
         # col1
@@ -27,7 +36,7 @@ class Table(UserDict):
             self.__conn.execute(MAKE_TABLE)
             self.__conn.commit()
 
-    def describe(self):
+    def describe(self) -> str:
         GET_COLS = f'PRAGMA TABLE_INFO("{self.name}")'
         data = self.__conn.select(GET_COLS)
         head = ['cid', 'name', 'type', 'notnull', 'default', 'primary key']
@@ -35,7 +44,7 @@ class Table(UserDict):
         return tabulate([x for x in data], head, tablefmt='grid')
 
     @property
-    def xschema(self):
+    def xschema(self) -> dict:
         GET_SQL = f'SELECT sql FROM sqlite_master WHERE "name" = "{self.name}"'
         schema = self.__conn.select_one(GET_SQL)[0]
         return {
@@ -43,6 +52,15 @@ class Table(UserDict):
             'cols': self.columns,
             'sql': schema
         }
+
+    @property
+    def columns(self) -> list:
+        '''
+        Return s a list of column names
+        '''
+        GET_COLS = f'PRAGMA TABLE_INFO("{self.table_name}")'
+        data = self.__conn.select(GET_COLS)
+        return [x[1] for x in data]
 
     def __enter__(self):
         if not hasattr(self, 'conn') or self.conn is None:
@@ -87,18 +105,22 @@ class Table(UserDict):
             self.commit()
 
     def get_idx(self, idx):
+        '''
+        Get a single value by `rowid`
+        '''
         GET_ITEM = f'SELECT "_rowid_", * FROM "{self.name}" WHERE "_rowid_" = ?'
         item = self.__conn.select_one(GET_ITEM, (idx, ))
         if item is None:
-            raise KeyError(args[0])
+            raise KeyError(idx)
         return item
 
     def get_slice(self, slc):
+        '''
+        Get a range of values by range
+        '''
         GET_ITEM = f'SELECT * FROM "{self.name}"'\
-                 + f'LIMIT {slc.start or 0} '\
-                 + f', '\
-                 + f'{slc.stop-1 if slc.stop is not None else 4999}'
-        item = self.__conn.select(GET_ITEM)
+            + f'WHERE "_rowid_" BETWEEN ? AND ?'
+        item = self.__conn.select(GET_ITEM, ((slc.start), (slc.stop)))
         if item is None:
             raise KeyError(slc[0])
         return [x for x in item][::slc.step]
@@ -112,24 +134,27 @@ class Table(UserDict):
     def get_col_sel(self, col, idx):
         cols = ', '.join([x for x in col])
         GET_ITEM = f'SELECT {cols} FROM "{self.name}"'\
-                 + f'WHERE "{self.columns[0]}" = ?'\
-                 + 'ORDER BY rowid'
+            + f'WHERE "{self.columns[0]}" = ?'\
+            + 'ORDER BY rowid'
         item = self.__conn.select_one(GET_ITEM, (idx, ))
         if item is None:
             raise KeyError(idx)
         return item
 
     def get_col_filt(self, col, slc):
+        """
+        Get data filtered by column
+        """
         if slc.stop is None:
             GET_ITEM = f'SELECT * FROM "{self.name}" WHERE '\
-                     + f'"{col}" >= {slc.start} '
+                     + f'"{col}" >= {slc.start} ORDER BY _rowid_'
             item = self.__conn.select(GET_ITEM)
             if item is None:
                 raise KeyError("No entry for given condition")
             return [x for x in item][::slc.step]
         elif slc.start is None:
             GET_ITEM = f'SELECT * FROM "{self.name}" WHERE '\
-                     + f'"{col}" < {slc.stop}'
+                     + f'"{col}" < {slc.stop} ORDER BY _rowid_'
             item = self.__conn.select(GET_ITEM)
             if item is None:
                 raise KeyError("No entry for given condition")
@@ -137,7 +162,7 @@ class Table(UserDict):
         else:
             GET_ITEM = f'SELECT * FROM "{self.name}" WHERE '\
                      + f'"{col}" BETWEEN {slc.start} '\
-                     + f'AND {slc.stop-1}'
+                     + f'AND {slc.stop-1} ORDER BY _rowid_'
             item = self.__conn.select(GET_ITEM)
             if item is None:
                 raise KeyError("No entry for given condition")
