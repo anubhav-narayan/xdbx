@@ -318,12 +318,42 @@ class Table(UserDict):
         '''
         GET_SQL = f'SELECT sql FROM sqlite_master WHERE "name" = "{self.name}"'
         CREATE = self.__conn.select_one(GET_SQL)[0]
+        if CREATE.find('IF NOT EXISTS') == -1:
+            idx = CREATE.find("TABLE")
+            CREATE = CREATE[:idx+5] + ' IF NOT EXISTS ' + CREATE[idx+5:]
         VALUES = ',\n'.join([str(x) for x in self[::]])
         INSERT = f'INSERT INTO "{self.name}" VALUES\n' + VALUES
         return f'{CREATE};\n{INSERT};'
 
 
-class JSON_Storage(UserDict):
+class Transaction(Table):
+    def __init__(self, name: str, trc_name: str,
+                 connection: SqliteMultiThread, flag: str,
+                 primary_key_dtype: str = 'TEXT'):
+        self.__conn = connection
+        self.flag = flag
+        self.name = name.replace('"', '""')
+        self.trc_name = trc_name.replace('"', '""')
+        self.trc = f'trc_{self.trc_name}_on_{self.name}'
+        self.filename = self.__conn.filename
+        GET_ITEM = 'SELECT name FROM sqlite_master WHERE name = ?'
+        item = self.__conn.select_one(GET_ITEM, (name,))
+        if item is None:
+            raise LookupError(f"Table '{name}' does not exist")
+        self.__conn.execute("BEGIN TRANSACTION;")
+        self.__conn.execute(f'SAVEPOINT "{self.trc}";')
+
+    def savepoint(name: str):
+        self.__conn.execute(f'SAVEPOINT "{name}";')
+
+    def rollback(to: str = ''):
+        self.__conn.execute(f'ROLLBACK "{to};"')
+
+    def release(from_: str):
+        self.__conn.execute(f'RELEASE "{from_};"')
+
+
+class JSONStorage(UserDict):
     def __init__(self, name: str, connection: SqliteMultiThread, flag: str,
                  primary_key_dtype: str = 'TEXT'):
         self.__conn = connection
@@ -331,7 +361,7 @@ class JSON_Storage(UserDict):
         self.name = name.replace('"', '""')
         # Check for the table or create new with
         # two columns named key(Primary Key) and
-        # col1
+        # object
         GET_ITEM = 'SELECT name FROM sqlite_master WHERE name = ?'
         item = self.__conn.select_one(GET_ITEM, (name,))
         if item is None:
