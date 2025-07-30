@@ -351,33 +351,6 @@ class Table(UserDict):
         return f'{CREATE};\n{INSERT};'
 
 
-class Transaction(Table):
-    def __init__(self, name: str, trc_name: str,
-                 connection: SqliteMultiThread, flag: str,
-                 primary_key_dtype: str = 'TEXT'):
-        self.__conn = connection
-        self.flag = flag
-        self.name = name.replace('"', '""')
-        self.trc_name = trc_name.replace('"', '""')
-        self.trc = f'trc_{self.trc_name}_on_{self.name}'
-        self.filename = self.__conn.filename
-        GET_ITEM = 'SELECT name FROM sqlite_master WHERE name = ?'
-        item = self.__conn.select_one(GET_ITEM, (name,))
-        if item is None:
-            raise LookupError(f"Table '{name}' does not exist")
-        self.__conn.execute("BEGIN TRANSACTION;")
-        self.__conn.execute(f'SAVEPOINT "{self.trc}";')
-
-    def savepoint(name: str):
-        self.__conn.execute(f'SAVEPOINT "{name}";')
-
-    def rollback(to: str = ''):
-        self.__conn.execute(f'ROLLBACK "{to};"')
-
-    def release(from_: str):
-        self.__conn.execute(f'RELEASE "{from_};"')
-
-
 class JSONStorage(UserDict):
     def __init__(self, name: str, connection: SqliteMultiThread, flag: str,
                  primary_key_dtype: str = 'TEXT'):
@@ -539,3 +512,100 @@ class JSONStorage(UserDict):
         VALUES = ',\n'.join([str((x, self[x])) for x in self])
         INSERT = f'INSERT INTO "{self.name}" VALUES\n' + VALUES
         return f'{CREATE};\n{INSERT};'
+
+
+class TableView(UserDict):
+    """
+    Connector Class for a SQLite View as UserDict.
+
+    Usage:
+        db = Database()
+        view = db[('my_view', 'view')]
+    """
+
+    def __init__(self, name: str, connection: SqliteMultiThread, flag: str,
+                 create_sql: str | None = None):
+        self.__conn = connection
+        self.flag = flag
+        self.name = name.replace('"', '""')
+        self.filename = self.__conn.filename
+
+        GET_VIEW = 'SELECT name FROM sqlite_master WHERE type="view" AND name = ?'
+        item = self.__conn.select_one(GET_VIEW, (name,))
+        if item is None:
+            if create_sql is None:
+                raise RuntimeError(f'View "{name}" does not exist and no SQL provided to create it.')
+            CREATE_VIEW = f'CREATE VIEW "{self.name}" AS {create_sql}'
+            self.__conn.execute(CREATE_VIEW)
+            self.__conn.commit()
+
+    def describe(self):
+        GET_COLS = f'PRAGMA TABLE_INFO("{self.name}")'
+        data = self.__conn.select(GET_COLS)
+        head = ['cid', 'name', 'type', 'notnull', 'default', 'primary key']
+        from tabulate import tabulate
+        return tabulate(data, head, tablefmt='grid')
+
+    @property
+    def xschema(self):
+        GET_SQL = f'SELECT sql FROM sqlite_master WHERE "name" = "{self.name}"'
+        schema = self.__conn.select_one(GET_SQL)[0]
+        return {
+            'name': self.name,
+            'cols': self.columns,
+            'sql': schema
+        }
+
+    @property
+    def columns(self):
+        GET_COLS = f'PRAGMA TABLE_INFO("{self.name}")'
+        data = self.__conn.select(GET_COLS)
+        return [x[1] for x in data]
+
+    def __getitem__(self, args):
+        if isinstance(args, slice):
+            GET = f'SELECT * FROM "{self.name}" LIMIT ? OFFSET ?'
+            result = self.__conn.select(GET, (args.stop - args.start, args.start))
+            return result[::args.step] if args.step else result
+
+        if isinstance(args, int):
+            GET = f'SELECT * FROM "{self.name}" LIMIT 1 OFFSET ?'
+            item = self.__conn.select_one(GET, (args,))
+            if item is None:
+                raise KeyError(args)
+            return item
+
+        if isinstance(args, str) and args in self.columns:
+            GET = f'SELECT "{args}" FROM "{self.name}" ORDER BY rowid'
+            result = self.__conn.select(GET)
+            return [x[0] for x in result]
+
+        if isinstance(args, tuple) and len(args) >= 2:
+            col, value = args[0], args[1]
+            if col not in self.columns:
+                raise KeyError(f'Unknown column: {col}')
+            GET = f'SELECT * FROM "{self.name}" WHERE "{col}" = ?'
+            result = self.__conn.select(GET, (value,))
+            return result
+
+        raise TypeError("Unsupported key type")
+
+    def __contains__(self, key):
+        CHECK = f'SELECT 1 FROM "{self.name}" WHERE _rowid_ = ?'
+        return self.__conn.select_one(CHECK, (key,)) is not None
+
+    def keys(self):
+        GET_KEYS = f'SELECT rowid FROM "{self.name}" ORDER BY rowid'
+        for x in self.__conn.select(GET_KEYS):
+            yield x[0]
+
+    def __iter__(self):
+        return self.keys()
+
+    def __repr__(self):
+        return f'TableView: {self.name}'
+
+    def __len__(self):
+        GET_LEN = f'SELECT COUNT(*) FROM "{self.name}"'
+        count = self.__conn.select_one(GET_LEN)
+        return count[0] if count else 0

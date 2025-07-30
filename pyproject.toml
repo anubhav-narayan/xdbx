@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "XDBX"
-version = "0.0.1"
+version = "0.5.1"
 description = "XDBX DataBase eXtention"
 authors = ["Anubhav Mattoo <anubhavmattoo@outlook.com>"]
 license = "MIT"
