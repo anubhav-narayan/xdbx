@@ -6,7 +6,7 @@ import os
 from collections import UserDict
 from .threads import SqliteMultiThread
 from .logger import logger
-from .connectors import Table, JSONStorage
+from .storages import Table, JSONStorage
 
 
 class Database(UserDict):

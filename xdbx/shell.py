@@ -2,7 +2,6 @@
 
 import click
 import click_shell
-from tabulate import tabulate
 from .database import Database
 from .transaction import Transaction
 
@@ -87,13 +86,47 @@ def close(ctx, db: str):
 
 @cli.command(
     'get',
-    short_help="Get from db_store"
+    short_help="Get from DB Storage"
+)
+@click.option(
+    '--db',
+    help="Database",
+    show_default=True,
+    default=''
+)
+@click.option(
+    '--store',
+    help="Storage",
+    show_default=True,
+    default=''
+)
+@click.argument(
+    'query',
+    type=str
 )
 @click.pass_context
-def get(ctx):
+def get(ctx, db, store, query):
     if not ctx.obj['db_store'] or len(ctx.obj['db_store']) == 0:
         click.echo("No Open Databases")
     else:
-        tab = tabulate([(name, db.filename) for name, db in ctx.obj['db_store'].items()], headers=['Name', 'DB'], tablefmt='grid')
+        tab = {}
+        if db == '':
+            for db_ in ctx.obj['db_store']:
+                store_ = {}
+                if store == '':
+                    for y in ctx.obj['db_store'][db_].storages:
+                        store_[y] = ctx.obj['db_store'][db_][y, 'json'].get_path(query, None)
+                    tab[db_] = store_
+                else:
+                    tab[db_] = ctx.obj['db_store'][db_][store, 'json'].get_path(query, None)
+        elif db in ctx.obj['db_store']:
+            store_ = {}
+            if store == '':
+                for y in ctx.obj['db_store'][db].storages:
+                    store_[y] = ctx.obj['db_store'][db][y, 'json'].get_path(query, None)
+                tab[db] = store_
+            else:
+                tab[db] = ctx.obj['db_store'][db][store, 'json'].get_path(query, None)
+
         click.echo(tab)
 
