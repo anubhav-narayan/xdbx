@@ -2,7 +2,6 @@
 Connector Classes for Collections,
 Tables and BLOBs
 """
-import re
 from .threads import SqliteMultiThread
 from collections import UserDict
 
@@ -217,17 +216,11 @@ class Table(UserDict):
         if self.flag == 'r':
             raise RuntimeError('Refusing to delete in read-only mode')
 
-    def keys(self):
-        '''
-        Return Primary Keys Generator
-        '''
+    def __iter__(self):
         GET_KEYS = f'SELECT "{self.columns[0]}" FROM "{self.name}"\
                      ORDER BY rowid'
         for x in self.__conn.select(GET_KEYS):
             yield x[0]
-
-    def __iter__(self):
-        return self.keys()
 
     @property
     def columns(self) -> list:
@@ -482,7 +475,7 @@ class JSONStorage(UserDict):
                     return current
 
             if (isinstance(current, dict) or isinstance(current, UserDict)) and key in current:
-                return {key: resolve(current[key], keys[1:])}
+                return resolve(current[key], keys[1:])
             else:
                 # Skip this branch silently
                 return default
@@ -520,7 +513,7 @@ class JSONStorage(UserDict):
         import json
         return json.dumps(self.to_dict())
 
-    def update(self, dict2: dict):
+    def merge(self, dict2: dict):
         '''
         Update the Storage
         '''

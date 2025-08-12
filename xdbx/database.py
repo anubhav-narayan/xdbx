@@ -2,7 +2,6 @@
 NoSQLite3 Database Class
 """
 import os
-
 from collections import UserDict
 from .threads import SqliteMultiThread
 from .logger import logger
