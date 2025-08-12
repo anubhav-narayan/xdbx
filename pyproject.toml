@@ -8,6 +8,10 @@ license = "MIT"
 [tool.poetry.dependencies]
 python = "^3.6"
 tabulate = "^0.8.9"
+click-shell = "^2.1"
+
+[tool.poetry.scripts]
+sdbx = "xdbx.shell:cli"
 
 [tool.poetry.dev-dependencies]
 

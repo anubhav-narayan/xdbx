@@ -2,6 +2,7 @@
 Connector Classes for Collections,
 Tables and BLOBs
 """
+import re
 from .threads import SqliteMultiThread
 from collections import UserDict
 
@@ -402,7 +403,7 @@ class JSONStorage(UserDict):
         return f'JSON Storage: {self.name}'
 
     def __len__(self):
-        GET_LEN = f'SELECT COUNT(*) FROM "{self.name}"'
+        GET_LEN = f'SELECT COUNT(row_id) FROM "{self.name}"'
         rows = self.__conn.select_one(GET_LEN)[0]
         return rows if rows is not None else 0
 
@@ -411,12 +412,6 @@ class JSONStorage(UserDict):
         return self.__conn.select_one(HAS_ITEM, (key,)) is not None
 
     def __iter__(self):
-        return self.keys()
-
-    def keys(self):
-        '''
-        Return Primary Keys Generator
-        '''
         GET_KEYS = f'SELECT "key" FROM "{self.name}" ORDER BY rowid'
         for x in self.__conn.select(GET_KEYS):
             yield x[0]
@@ -442,13 +437,58 @@ class JSONStorage(UserDict):
             self.commit()
 
     def __getitem__(self, key):
-        # args is key
         import json
-        GET_ITEM = f'SELECT object FROM "{self.name}" WHERE "key" = ?'
+        GET_ITEM = f'SELECT "object" FROM "{self.name}" WHERE "key" = ?'
         item = self.__conn.select_one(GET_ITEM, (key,))
         if item is None:
             raise KeyError(key)
         return json.loads(item[0])
+
+    def get_path(self, path, default=None, delimiter="/"):
+        """
+        Retrieve a value from nested dict-like storage using a path expression.
+        Supports wildcards (*) and skips entries where keys are missing.
+
+        Args:
+            path (str): Delimited path string (e.g., "team/members/*/name").
+            default (Any): Value to return if path is not found.
+            delimiter (str): Delimiter used to split the path.
+
+        Returns:
+            Any: Value(s) at the path or default if not found.
+        """
+        def resolve(current, keys: list):
+            if not keys:
+                return current
+
+            key = keys[0]
+
+            if key == "*":
+                if isinstance(current, dict) or isinstance(current, UserDict):
+                    results = {}
+                    for subkey, subval in current.items():
+                        res = resolve(subval, keys[1:])
+                        if res != default:
+                            results[subkey] = res
+                    return results if results else default
+                elif isinstance(current, list):
+                    results = []
+                    for item in current:
+                        res = resolve(item, keys[1:])
+                        if res != default:
+                            results.append(res)
+                    return results
+                else:
+                    return current
+
+            if (isinstance(current, dict) or isinstance(current, UserDict)) and key in current:
+                return {key: resolve(current[key], keys[1:])}
+            else:
+                # Skip this branch silently
+                return default
+
+        keys = path.split(delimiter)
+        return resolve(self, keys)
 
     @property
     def columns(self) -> list:
@@ -484,7 +524,7 @@ class JSONStorage(UserDict):
         '''
         Update the Storage
         '''
-        def dict_merge(a: dict, b: dict):
+        def dict_merge(a, b):
             '''
             Recursive Dict Merge
             '''

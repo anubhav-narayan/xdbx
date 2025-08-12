@@ -2,9 +2,6 @@
 NoSQLite3 Database Class
 """
 import os
-import sys
-import logging
-import traceback
 
 from collections import UserDict
 from .threads import SqliteMultiThread
