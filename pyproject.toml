@@ -6,9 +6,12 @@ authors = ["Anubhav Mattoo <anubhavmattoo@outlook.com>"]
 license = "MIT"
 
 [tool.poetry.dependencies]
-python = "^3.6"
+python = "^3.9"
 tabulate = "^0.8.9"
 click-shell = "^2.1"
+lark = "^1.2.2"
+fastapi = "^0.116.1"
+uvicorn = "^0.35.0"
 
 [tool.poetry.scripts]
 sdbx = "xdbx.shell:cli"

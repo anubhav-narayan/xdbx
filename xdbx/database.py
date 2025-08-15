@@ -74,7 +74,7 @@ class Database(UserDict):
     def __getitem__(self, *args):
         if type(args[0]) == str:  # Single arg
             table_name = args[0]
-            return Table(table_name, self.conn, self.flag)
+            return JSONStorage(table_name, self.conn, self.flag)
         elif type(args[0]) == tuple:  # Type arg
             table_name = args[0][0]
             astype = args[0][1]
@@ -109,7 +109,7 @@ class Database(UserDict):
         from tabulate import tabulate
         return tabulate([x[:4] for x in items], head, tablefmt='grid')
 
-    def keys(self):
+    def __iter__(self):
         GET_TABLES = 'SELECT name FROM sqlite_master WHERE type="table"\
                       ORDER BY rowid'
         for key in self.conn.select(GET_TABLES):

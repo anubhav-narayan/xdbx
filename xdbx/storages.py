@@ -450,38 +450,56 @@ class JSONStorage(UserDict):
         Returns:
             Any: Value(s) at the path or default if not found.
         """
-        def resolve(current, keys: list):
+
+        def resolve(current,
+                    keys,
+                    default=None,
+                    path_prefix= None,
+                    delimiter: str = "/"):
+            """
+            Lazily yield (full_path, value) for every matched path, even if value == default.
+
+            - '*' matches all keys or list indices at this level.
+            - Supports dict, UserDict, and list traversal.
+            - Always yields exactly once for each path implied by keys sequence.
+            """
+            if path_prefix is None:
+                path_prefix = []
+
             if not keys:
-                return current
+                # End of path expression — yield whatever we have (or default if missing)
+                yield {delimiter.join(path_prefix): current}
+                return
 
             key = keys[0]
+            rest = keys[1:]
 
             if key == "*":
-                if isinstance(current, dict) or isinstance(current, UserDict):
-                    results = {}
+                if isinstance(current, (dict, UserDict)):
                     for subkey, subval in current.items():
-                        res = resolve(subval, keys[1:])
-                        if res != default:
-                            results[subkey] = res
-                    return results if results else default
+                        yield from resolve(subval, rest, default, path_prefix + [str(subkey)], delimiter)
                 elif isinstance(current, list):
-                    results = []
-                    for item in current:
-                        res = resolve(item, keys[1:])
-                        if res != default:
-                            results.append(res)
-                    return results
+                    for idx, item in enumerate(current):
+                        yield from resolve(item, rest, default, path_prefix + [str(idx)], delimiter)
                 else:
-                    return current
+                    # Can't expand '*' — just propagate without keys.
+                    yield from resolve(current, [], default, path_prefix, delimiter)
 
-            if (isinstance(current, dict) or isinstance(current, UserDict)) and key in current:
-                return resolve(current[key], keys[1:])
             else:
-                # Skip this branch silently
-                return default
+                if isinstance(current, (dict, UserDict)):
+                    if key in current:
+                        yield from resolve(current[key], rest, default, path_prefix + [key], delimiter)
+                    else:
+                        # Key missing — substitute default and still yield
+                        yield from resolve(default, rest, default, path_prefix + [key], delimiter)
+                else:
+                    # Not a mapping — treat as missing
+                    yield from resolve(default, rest, default, path_prefix + [key], delimiter)
 
+
+        path = path.strip(delimiter)
         keys = path.split(delimiter)
-        return resolve(self, keys)
+        return resolve(self, keys, default, delimiter=delimiter)
 
     @property
     def columns(self) -> list:
