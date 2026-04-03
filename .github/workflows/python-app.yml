@@ -31,4 +31,4 @@ jobs:
     - name: Test with pytest
       run: |
         poetry install --no-interaction --no-ansi
-        poetry run pytest
+        poetry run python3 -m pytest
