@@ -1,0 +1,144 @@
+from typing import Generator
+import pytest
+from xdbx import Database
+from xdbx.storages import JSONStorage
+import json
+
+@pytest.fixture
+def mem_db() -> Generator[Database, None, None]:
+    """In-memory xdbx Database, closed after each test."""
+    db = Database(":memory:", autocommit=True, journal_mode="WAL")
+    yield db
+    db.close(do_log=False, force=True)
+
+@pytest.fixture
+def json_storage(mem_db: Database) -> JSONStorage:
+    """Empty JSONStorage inside an in-memory Database."""
+    return mem_db["items", "json"]
+
+@pytest.mark.unit
+class TestJSONStorage:
+    """JSONStorage CRUD, path queries, and serialisation helpers."""
+ 
+    def test_repr(self, json_storage):
+        assert "JSON Storage" in repr(json_storage)
+        assert "items" in repr(json_storage)
+ 
+    def test_setitem_and_getitem_roundtrip(self, json_storage):
+        json_storage["k1"] = {"x": 1, "y": [2, 3]}
+        assert json_storage["k1"] == {"x": 1, "y": [2, 3]}
+ 
+    def test_setitem_update_existing(self, json_storage):
+        json_storage["k"] = {"v": 1}
+        json_storage["k"] = {"v": 99}
+        assert json_storage["k"]["v"] == 99
+ 
+    def test_setitem_non_dict_raises_type_error(self, json_storage):
+        with pytest.raises(TypeError, match="use dict"):
+            json_storage["k"] = "string"  # type: ignore[assignment]
+ 
+    def test_getitem_missing_raises_key_error(self, json_storage):
+        with pytest.raises(KeyError):
+            _ = json_storage["missing"]
+ 
+    def test_contains_true(self, json_storage):
+        json_storage["present"] = {"a": 1}
+        assert "present" in json_storage
+ 
+    def test_contains_false(self, json_storage):
+        assert "absent" not in json_storage
+ 
+    def test_iter_yields_insertion_order_keys(self, json_storage):
+        json_storage["z"] = {"n": 3}
+        json_storage["a"] = {"n": 1}
+        json_storage["m"] = {"n": 2}
+        keys = [k for k in json_storage]     # safe: uses __iter__ not __len__
+        assert keys == ["z", "a", "m"]
+ 
+    def test_columns_property(self, json_storage):
+        cols = json_storage.columns
+        assert "key" in cols
+        assert "object" in cols
+ 
+    def test_describe_returns_grid_string(self, json_storage):
+        desc = json_storage.describe()
+        assert "key" in desc and "object" in desc
+ 
+    def test_xschema_has_expected_keys(self, json_storage):
+        schema = json_storage.xschema
+        assert set(schema.keys()) == {"name", "cols", "sql"}
+        assert schema["name"] == "items"
+ 
+    def test_commit_is_callable(self, json_storage):
+        json_storage["x"] = {"v": 1}
+        json_storage.commit(blocking=True)   # must not raise
+ 
+    def test_readonly_raises_on_write(self, mem_db):
+        st = mem_db["ro", "json"]
+        st.flag = "r"
+        with pytest.raises(RuntimeError, match="read-only"):
+            st["k"] = {"v": 1}
+ 
+    # ── get_path ──────────────────────────────────────────────────────────────
+ 
+    def test_get_path_direct_key(self, json_storage):
+        json_storage["rec"] = {"score": 42}
+        results = list(json_storage.get_path("rec/score"))
+        assert results == [{"rec/score": 42}]
+ 
+    def test_get_path_wildcard_all_records(self, json_storage):
+        json_storage["alice"] = {"age": 30}
+        json_storage["bob"]   = {"age": 25}
+        results = list(json_storage.get_path("*/age"))
+        age_map = {list(d.keys())[0].split("/")[0]: list(d.values())[0]
+                   for d in results}
+        assert age_map == {"alice": 30, "bob": 25}
+ 
+    def test_get_path_missing_field_yields_none(self, json_storage):
+        json_storage["x"] = {"a": 1}
+        json_storage["y"] = {"b": 2}   # no "a" field
+        results = list(json_storage.get_path("*/a"))
+        values = {list(d.keys())[0].split("/")[0]: list(d.values())[0]
+                  for d in results}
+        assert values["x"] == 1
+        assert values["y"] is None
+ 
+    def test_get_path_returns_generator(self, json_storage):
+        import types
+        json_storage["r"] = {"k": "v"}
+        result = json_storage.get_path("*/k")
+        assert isinstance(result, types.GeneratorType)
+ 
+    # ── serialisation helpers ─────────────────────────────────────────────────
+ 
+    def test_to_dict(self, json_storage):
+        json_storage["p"] = {"val": 1}
+        json_storage["q"] = {"val": 2}
+        d = json_storage.to_dict()
+        assert d == {"p": {"val": 1}, "q": {"val": 2}}
+ 
+    def test_to_json_is_valid_json(self, json_storage):
+        json_storage["r"] = {"x": 99}
+        payload = json_storage.to_json()
+        parsed = json.loads(payload)
+        assert parsed == {"r": {"x": 99}}
+ 
+    def test_to_sql_contains_create_and_insert(self, json_storage):
+        json_storage["s"] = {"data": "hello"}
+        sql = json_storage.to_sql()
+        assert "CREATE" in sql
+        assert "INSERT" in sql
+ 
+    def test_merge_adds_new_keys(self, json_storage):
+        json_storage["base"] = {"a": 1, "b": 2}
+        json_storage.merge({"extra": {"c": 3}})
+        assert "extra" in json_storage
+        assert json_storage["extra"] == {"c": 3}
+ 
+    def test_merge_updates_existing_nested(self, json_storage):
+        json_storage["rec"] = {"nested": {"x": 1, "y": 2}}
+        json_storage.merge({"rec": {"nested": {"y": 99, "z": 3}}})
+        result = json_storage["rec"]
+        assert result["nested"]["x"] == 1    # preserved
+        assert result["nested"]["y"] == 99   # updated
+        assert result["nested"]["z"] == 3    # added

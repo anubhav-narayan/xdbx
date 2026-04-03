@@ -1,6 +1,25 @@
 """
-Connector Classes for Collections,
-Tables and BLOBs
+Connector classes for SQLite collections, tables, JSON storage, and views.
+
+This module provides Pythonic, dict-like wrappers around SQLite structures,
+making them easier to use in applications that need lightweight persistence
+or hybrid relational/document storage.
+
+Classes:
+    Table:
+        Wraps a standard SQLite table as a `UserDict`.
+        Supports dict-like access, insertion via tuples or dicts,
+        column operations, slicing, filtering, and schema inspection.
+
+    JSONStorage:
+        Stores JSON-serializable Python dictionaries in SQLite.
+        Provides dict-like access, recursive merging, path-based queries,
+        and export to dict/JSON.
+
+    TableView:
+        Wraps a SQLite view as a `UserDict`.
+        Allows dict-like querying of views, including slices, column
+        selection, and filtering.
 """
 from .threads import SqliteMultiThread
 from collections import UserDict
@@ -206,11 +225,6 @@ class Table(UserDict):
         self.__conn.execute(DEL_ITEM, (key,))
         if self.__conn.autocommit:
             self.commit()
-
-    def __del__(self):
-        if self.__conn.autocommit:
-            self.commit()
-        self.__conn.close(True)
 
     def rename(self):
         if self.flag == 'r':
