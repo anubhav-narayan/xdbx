@@ -30,4 +30,5 @@ jobs:
     - name: Test with pytest
       run: |
         poetry update
+        poetry install
         poetry run pytest
