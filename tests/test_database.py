@@ -1,0 +1,67 @@
+from typing import Generator
+import pytest
+from xdbx import Database
+from xdbx.storages import JSONStorage, Table
+
+@pytest.fixture
+def mem_db() -> Generator[Database, None, None]:
+    """In-memory xdbx Database, closed after each test."""
+    db = Database(":memory:", autocommit=True, journal_mode="WAL")
+    yield db
+    db.close(do_log=False, force=True)
+
+
+@pytest.mark.unit
+class TestDatabase:
+    """Database container — creation, metadata, and flag handling."""
+ 
+    def test_in_memory_creates_without_error(self):
+        db = Database(":memory:")
+        db.close(do_log=False, force=True)
+ 
+    def test_contains_false_before_storage_creation(self, mem_db):
+        assert "nosuch" not in mem_db
+ 
+    def test_contains_true_after_storage_creation(self, mem_db):
+        mem_db["things", "json"]
+        assert "things" in mem_db
+ 
+    def test_storages_property_lists_tables(self, mem_db):
+        mem_db["alpha", "json"]
+        mem_db["beta",  "json"]
+        assert set(mem_db.storages) >= {"alpha", "beta"}
+ 
+    def test_indices_property_is_list(self, mem_db):
+        assert isinstance(mem_db.indices, list)
+ 
+    def test_views_property_is_list(self, mem_db):
+        assert isinstance(mem_db.views, list)
+ 
+    def test_str_includes_filename(self, mem_db):
+        assert ":memory:" in str(mem_db)
+ 
+    def test_repr_equals_str(self, mem_db):
+        assert repr(mem_db) == str(mem_db)
+ 
+    def test_describe_returns_string(self, mem_db):
+        mem_db["t", "json"]
+        result = mem_db.describe()
+        assert isinstance(result, str)
+        assert len(result) > 0
+ 
+    def test_context_manager_closes_on_exit(self):
+        with Database(":memory:") as db:
+            db["t", "json"]
+        assert db.conn is None
+ 
+    def test_invalid_flag_raises(self):
+        with pytest.raises(RuntimeError, match="Unrecognized flag"):
+            Database(":memory:", flag="x")
+ 
+    def test_getitem_json_type(self, mem_db):
+        st = mem_db["stuff", "json"]
+        assert isinstance(st, JSONStorage)
+ 
+    def test_getitem_table_type(self, mem_db):
+        tbl = mem_db["rows", "table"]
+        assert isinstance(tbl, Table)
