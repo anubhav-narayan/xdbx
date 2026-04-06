@@ -101,7 +101,7 @@ class Table(UserDict):
             if len(value) != len(self.columns) - 1:
                 raise ValueError("Incorrect number of values")
             data = [key]
-            data.extend([x for x in value])
+            data += [x for x in value]
             ADD_ITEM = f'REPLACE INTO "{self.name}" {tuple(self.columns)}'\
                 + f' VALUES ({", ".join(["?" for x in data])})'
         elif type(value) == dict:
@@ -139,7 +139,7 @@ class Table(UserDict):
         '''
         GET_ITEM = f'SELECT * FROM "{self.name}"'\
             + f'WHERE "_rowid_" BETWEEN ? AND ?'
-        item = self.__conn.select(GET_ITEM, ((slc.start), (slc.stop)))
+        item = self.__conn.select(GET_ITEM, ((slc.start), (slc.stop-1)))
         if item is None:
             raise KeyError(slc[0])
         return [x for x in item][::slc.step]
@@ -196,12 +196,14 @@ class Table(UserDict):
                 return self.get_idx(args)
             elif isinstance(args, str) and args in self.columns:
                 return self.get_col(args)
-            elif isinstance(args, str) and args not in self.columns:
+            elif isinstance(args, str) and args in self.keys():
                 GET_ITEM = f'SELECT * FROM "{self.name}" WHERE "{self.columns[0]}" = ? ORDER BY rowid'
                 item = self.__conn.select_one(GET_ITEM, (args,))
                 if item is None:
                     raise KeyError(args)
                 return item
+            else:
+                raise KeyError(args)
         # column select
         if len(args) >= 2:
             if args[0] in self:
@@ -333,7 +335,7 @@ class Table(UserDict):
         elif otype == 'dict':
             for x in self:
                 ret_dict[x] = {
-                    k: v for k, v in zip(cols[1:], self[x])
+                    k: v for k, v in zip(cols[1:], self[x][1:])
                 }
             return ret_dict
         else:
@@ -341,7 +343,7 @@ class Table(UserDict):
                 'Please use \'column\', \'list\' or \'dict\' as otype'
             )
 
-    def to_sql(self):
+    def to_sql(self) -> str:
         '''
         Returns the table in SQLite Syntax
         '''
@@ -350,7 +352,7 @@ class Table(UserDict):
         if CREATE.find('IF NOT EXISTS') == -1:
             idx = CREATE.find("TABLE")
             CREATE = CREATE[:idx+5] + ' IF NOT EXISTS ' + CREATE[idx+5:]
-        VALUES = ',\n'.join([str(x) for x in self[::]])
+        VALUES = ',\n'.join([str(self[x]) for x in self.keys()])
         INSERT = f'INSERT INTO "{self.name}" VALUES\n' + VALUES
         return f'{CREATE};\n{INSERT};'
 

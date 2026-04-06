@@ -1,1 +1,1 @@
-from .udp_service import start_server
+from .rest_service import app as rest_app
