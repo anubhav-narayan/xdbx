@@ -19,6 +19,18 @@ log = logging.getLogger("XDBX REST Service")
 
 
 def validate_storage_type(storage_type: str) -> str:
+    """
+    Validates and normalizes the storage type.
+
+    Args:
+        storage_type (str): The storage type to validate ('json' or 'table').
+
+    Returns:
+        str: The normalized storage type in lowercase.
+
+    Raises:
+        HTTPException: If the storage type is not 'json' or 'table'.
+    """
     storage_type = storage_type.lower()
     if storage_type not in {"json", "table"}:
         raise HTTPException(status_code=400, detail="storage_type must be 'json' or 'table'")
@@ -26,6 +38,18 @@ def validate_storage_type(storage_type: str) -> str:
 
 
 def get_database(name: str) -> Database:
+    """
+    Retrieves a database from the store by name.
+
+    Args:
+        name (str): The name of the database.
+
+    Returns:
+        Database: The database instance.
+
+    Raises:
+        HTTPException: If the database is not found.
+    """
     try:
         return store[name]
     except KeyError:
@@ -33,6 +57,16 @@ def get_database(name: str) -> Database:
 
 
 def infer_storage_type(db: Database, storage_name: str) -> str:
+    """
+    Infers the storage type of a storage in the database.
+
+    Args:
+        db (Database): The database instance.
+        storage_name (str): The name of the storage.
+
+    Returns:
+        str: 'json' if the storage has columns ['key', 'object'], otherwise 'table'.
+    """
     GET_COLS = f'PRAGMA TABLE_INFO("{storage_name}")'
     schema = db.conn.select(GET_COLS)
     cols = [x[1] for x in schema]
@@ -42,6 +76,20 @@ def infer_storage_type(db: Database, storage_name: str) -> str:
 
 
 def get_storage(db: Database, storage_name: str, storage_type: Optional[str] = None):
+    """
+    Retrieves a storage instance from the database.
+
+    Args:
+        db (Database): The database instance.
+        storage_name (str): The name of the storage.
+        storage_type (Optional[str]): The expected storage type ('json' or 'table'). If None, infers the type.
+
+    Returns:
+        JSONStorage or Table: The storage instance.
+
+    Raises:
+        HTTPException: If the storage is not found or type mismatch.
+    """
     if storage_name not in db:
         raise HTTPException(status_code=404, detail=f"Storage '{storage_name}' not found")
 
@@ -65,6 +113,19 @@ def get_storage(db: Database, storage_name: str, storage_type: Optional[str] = N
 
 
 def table_row_as_dict(table: Table, key: str):
+    """
+    Converts a table row to a dictionary.
+
+    Args:
+        table (Table): The table instance.
+        key (str): The key of the row.
+
+    Returns:
+        dict: The row as a dictionary with column names as keys.
+
+    Raises:
+        KeyError: If the key is not found in the table.
+    """
     if key not in table:
         raise KeyError(key)
 
@@ -77,6 +138,9 @@ def table_row_as_dict(table: Table, key: str):
 
 
 class DatabaseCreateRequest(BaseModel):
+    """
+    Request model for creating a database.
+    """
     name: str
     autocommit: bool = True
     journal_mode: str = "WAL"
@@ -85,20 +149,34 @@ class DatabaseCreateRequest(BaseModel):
 
 
 class StorageCreateRequest(BaseModel):
+    """
+    Request model for creating a storage.
+    """
     name: str
     storage_type: str = "json"
 
 
 class ItemPayload(BaseModel):
+    """
+    Payload model for a single item.
+    """
     value: Any
 
 
 class BulkItemsPayload(BaseModel):
+    """
+    Payload model for bulk items.
+    """
     items: Dict[str, Any]
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """
+    Lifespan context manager for the FastAPI application.
+
+    Handles startup and shutdown events, including closing databases.
+    """
     log.info("Starting Up!")
     yield
     log.info("Shutting Down...")
@@ -118,6 +196,11 @@ app = FastAPI(
 
 @app.get("/")
 def health_check():
+    """
+    Health check endpoint.
+
+    Returns the status of the service and number of open databases.
+    """
     log.info("Health check requested")
     return {
         "status": "Success",
@@ -128,6 +211,18 @@ def health_check():
 
 @app.post("/databases", status_code=201)
 def create_database(request: DatabaseCreateRequest):
+    """
+    Creates a new database.
+
+    Args:
+        request (DatabaseCreateRequest): The database creation parameters.
+
+    Returns:
+        dict: Success response with database details.
+
+    Raises:
+        HTTPException: If the database already exists or creation fails.
+    """
     log.info("Create database request: %s", request.dict())
     if request.name in store:
         log.warning("Attempt to create existing database: %s", request.name)
@@ -154,12 +249,30 @@ def create_database(request: DatabaseCreateRequest):
 
 @app.get("/databases")
 def list_databases():
+    """
+    Lists all open databases.
+
+    Returns:
+        dict: List of database names.
+    """
     log.info("List databases request")
     return {"databases": list(store.keys())}
 
 
 @app.get("/databases/{db_name}")
 def get_database_metadata(db_name: str):
+    """
+    Retrieves metadata for a specific database.
+
+    Args:
+        db_name (str): The name of the database.
+
+    Returns:
+        dict: Database metadata including storages, indices, views, etc.
+
+    Raises:
+        HTTPException: If the database is not found.
+    """
     log.info("Get database metadata request: %s", db_name)
     db = get_database(db_name)
     return {
@@ -176,6 +289,18 @@ def get_database_metadata(db_name: str):
 
 @app.delete("/databases/{db_name}")
 def delete_database(db_name: str):
+    """
+    Deletes a database and closes it.
+
+    Args:
+        db_name (str): The name of the database to delete.
+
+    Returns:
+        dict: Success response.
+
+    Raises:
+        HTTPException: If the database is not found or deletion fails.
+    """
     log.info("Delete database request: %s", db_name)
     db = get_database(db_name)
     try:
@@ -190,6 +315,19 @@ def delete_database(db_name: str):
 
 @app.post("/databases/{db_name}/storages", status_code=201)
 def create_storage(db_name: str, request: StorageCreateRequest):
+    """
+    Creates a new storage in a database.
+
+    Args:
+        db_name (str): The name of the database.
+        request (StorageCreateRequest): The storage creation parameters.
+
+    Returns:
+        dict: Success response with storage details.
+
+    Raises:
+        HTTPException: If the database or storage already exists, or creation fails.
+    """
     log.info("Create storage request for database '%s': %s", db_name, request.dict())
     db = get_database(db_name)
     storage_type = validate_storage_type(request.storage_type)
@@ -216,6 +354,18 @@ def create_storage(db_name: str, request: StorageCreateRequest):
 
 @app.get("/databases/{db_name}/storages")
 def list_storages(db_name: str):
+    """
+    Lists all storages in a database.
+
+    Args:
+        db_name (str): The name of the database.
+
+    Returns:
+        dict: List of storages with their types.
+
+    Raises:
+        HTTPException: If the database is not found.
+    """
     log.info("List storages request for database '%s'", db_name)
     db = get_database(db_name)
     storages = []
@@ -234,6 +384,20 @@ def get_storage_metadata(
     storage_name: str,
     storage_type: Optional[str] = Query(None, description="Optional storage type override: json or table"),
 ):
+    """
+    Retrieves metadata for a specific storage.
+
+    Args:
+        db_name (str): The name of the database.
+        storage_name (str): The name of the storage.
+        storage_type (Optional[str]): Optional storage type override.
+
+    Returns:
+        dict: Storage metadata including type, entries, and columns (for tables).
+
+    Raises:
+        HTTPException: If the database or storage is not found.
+    """
     log.info("Get storage metadata request for '%s' in database '%s'", storage_name, db_name)
     db = get_database(db_name)
     storage = get_storage(db, storage_name, storage_type)
@@ -249,6 +413,19 @@ def get_storage_metadata(
 
 @app.delete("/databases/{db_name}/storages/{storage_name}")
 def delete_storage(db_name: str, storage_name: str):
+    """
+    Deletes a storage from a database.
+
+    Args:
+        db_name (str): The name of the database.
+        storage_name (str): The name of the storage to delete.
+
+    Returns:
+        dict: Success response.
+
+    Raises:
+        HTTPException: If the database or storage is not found, or deletion fails.
+    """
     log.info("Delete storage request for '%s' in database '%s'", storage_name, db_name)
     db = get_database(db_name)
     if storage_name not in db:
@@ -272,6 +449,22 @@ def list_storage_items(
     limit: Optional[int] = Query(None, ge=1),
     offset: int = Query(0, ge=0),
 ):
+    """
+    Lists items in a storage with optional pagination.
+
+    Args:
+        db_name (str): The name of the database.
+        storage_name (str): The name of the storage.
+        storage_type (Optional[str]): Optional storage type override.
+        limit (Optional[int]): Maximum number of items to return.
+        offset (int): Number of items to skip.
+
+    Returns:
+        dict: List of items.
+
+    Raises:
+        HTTPException: If the database or storage is not found.
+    """
     log.info("List items request for storage '%s' in database '%s' (limit=%s offset=%s)", storage_name, db_name, limit, offset)
     db = get_database(db_name)
     storage = get_storage(db, storage_name, storage_type)
@@ -301,6 +494,21 @@ def get_storage_item(
     item_key: str,
     storage_type: Optional[str] = Query(None, description="Optional storage type override: json or table"),
 ):
+    """
+    Retrieves a specific item from a storage.
+
+    Args:
+        db_name (str): The name of the database.
+        storage_name (str): The name of the storage.
+        item_key (str): The key of the item.
+        storage_type (Optional[str]): Optional storage type override.
+
+    Returns:
+        dict: The item data.
+
+    Raises:
+        HTTPException: If the database, storage, or item is not found.
+    """
     log.info("Get item request '%s' from storage '%s' in database '%s'", item_key, storage_name, db_name)
     db = get_database(db_name)
     storage = get_storage(db, storage_name, storage_type)
@@ -328,6 +536,22 @@ def upsert_storage_item(
     payload: ItemPayload,
     storage_type: Optional[str] = Query(None, description="Optional storage type override: json or table"),
 ):
+    """
+    Inserts or updates an item in a storage.
+
+    Args:
+        db_name (str): The name of the database.
+        storage_name (str): The name of the storage.
+        item_key (str): The key of the item.
+        payload (ItemPayload): The item data.
+        storage_type (Optional[str]): Optional storage type override.
+
+    Returns:
+        dict: Success response.
+
+    Raises:
+        HTTPException: If the database or storage is not found, or invalid data.
+    """
     log.info("Upsert item request '%s' in storage '%s' of database '%s'", item_key, storage_name, db_name)
     db = get_database(db_name)
     storage = get_storage(db, storage_name, storage_type)
@@ -363,6 +587,21 @@ def bulk_upsert_storage_items(
     payload: BulkItemsPayload,
     storage_type: Optional[str] = Query(None, description="Optional storage type override: json or table"),
 ):
+    """
+    Bulk inserts or updates multiple items in a storage.
+
+    Args:
+        db_name (str): The name of the database.
+        storage_name (str): The name of the storage.
+        payload (BulkItemsPayload): The bulk item data.
+        storage_type (Optional[str]): Optional storage type override.
+
+    Returns:
+        dict: Success response with list of upserted items.
+
+    Raises:
+        HTTPException: If the database or storage is not found, or invalid data.
+    """
     log.info(
         "Bulk upsert request for storage '%s' in database '%s' with %d items",
         storage_name,
@@ -429,6 +668,21 @@ def delete_storage_item(
     item_key: str,
     storage_type: Optional[str] = Query(None, description="Optional storage type override: json or table"),
 ):
+    """
+    Deletes an item from a storage.
+
+    Args:
+        db_name (str): The name of the database.
+        storage_name (str): The name of the storage.
+        item_key (str): The key of the item to delete.
+        storage_type (Optional[str]): Optional storage type override.
+
+    Returns:
+        dict: Success response.
+
+    Raises:
+        HTTPException: If the database, storage, or item is not found.
+    """
     log.info("Delete item request '%s' from storage '%s' in database '%s'", item_key, storage_name, db_name)
     db = get_database(db_name)
     storage = get_storage(db, storage_name, storage_type)
@@ -451,6 +705,21 @@ def query_storage_path(
     query: str,
     storage_type: Optional[str] = Query(None, description="Optional storage type override: json or table"),
 ):
+    """
+    Queries a JSON storage using a path expression.
+
+    Args:
+        db_name (str): The name of the database.
+        storage_name (str): The name of the storage (must be JSON).
+        query (str): The path query string.
+        storage_type (Optional[str]): Optional storage type override.
+
+    Returns:
+        dict: Query results.
+
+    Raises:
+        HTTPException: If the database or storage is not found, or not JSON storage.
+    """
     log.info("Path query request '%s' for storage '%s' in database '%s'", query, storage_name, db_name)
     db = get_database(db_name)
     storage = get_storage(db, storage_name, storage_type)
