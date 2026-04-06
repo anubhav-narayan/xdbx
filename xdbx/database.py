@@ -114,6 +114,11 @@ class Database(UserDict):
                       ORDER BY rowid'
         for key in self.conn.select(GET_TABLES):
             yield key[0]
+    
+    def __len__(self):
+        GET_TABLES = 'SELECT COUNT(rowid) FROM sqlite_master WHERE type="table"\
+                      ORDER BY rowid'
+        return self.conn.select_one(GET_TABLES)[0]
 
     def __contains__(self, name):
         HAS_ITEM = 'SELECT 1 FROM sqlite_master WHERE name = ?'

@@ -1,6 +1,13 @@
+import datetime
 import logging
+import multiprocessing
+import sys
+import os
+import threading
 from typing import Any, Dict, Optional
-
+import click
+from daemonocle import Daemon
+import uvicorn
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 from contextlib import asynccontextmanager
@@ -54,6 +61,69 @@ def get_database(name: str) -> Database:
         return store[name]
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Database '{name}' not found")
+
+def store_close_database(name: str) -> None:
+    """
+    Closes a database and removes it from the store.
+
+    Args:
+        name (str): The name of the database to close.
+
+    Returns:
+        Database: The database instance.
+
+    Raises:
+        HTTPException: If the database is not found.
+    """
+    try:
+        db = store.pop(name)
+        db.close()
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Database '{name}' not found")
+
+
+app_start_time = datetime.datetime.utcnow()
+
+
+def _format_uptime(start: datetime.datetime) -> Dict[str, Any]:
+    """Return uptime metadata from the given start time."""
+    now = datetime.datetime.utcnow()
+    uptime = now - start
+    seconds = int(uptime.total_seconds())
+    days, remainder = divmod(seconds, 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes, secs = divmod(remainder, 60)
+    formatted = f"{days}d {hours:02}:{minutes:02}:{secs:02}"
+    return {
+        "started_at": start.replace(microsecond=0).isoformat() + "Z",
+        "uptime": formatted,
+        "uptime_seconds": seconds,
+        "current_time": now.replace(microsecond=0).isoformat() + "Z",
+    }
+
+
+def _configure_service_logging(logfile: Optional[str], loglevel: str) -> None:
+    """Configure default logging handlers for the REST service."""
+    root = logging.getLogger()
+    for handler in list(root.handlers):
+        root.removeHandler(handler)
+
+    root.setLevel(loglevel.upper())
+    formatter = logging.Formatter("%(asctime)s %(levelname)s\t[%(name)s] %(message)s")
+
+    if logfile is None or logfile == "-":
+        handler = logging.StreamHandler(sys.stdout)
+    else:
+        handler = logging.FileHandler(logfile)
+
+    handler.setFormatter(formatter)
+    handler.setLevel(loglevel.upper())
+    root.addHandler(handler)
+
+    for logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+        logger = logging.getLogger(logger_name)
+        logger.propagate = True
+        logger.setLevel(loglevel.upper())
 
 
 def infer_storage_type(db: Database, storage_name: str) -> str:
@@ -199,13 +269,16 @@ def health_check():
     """
     Health check endpoint.
 
-    Returns the status of the service and number of open databases.
+    Returns the status of the service, uptime, and number of open databases.
     """
     log.info("Health check requested")
+    uptime_info = _format_uptime(app_start_time)
     return {
         "status": "Success",
         "message": "XDBX REST Service is running",
-        "databases open": len(store),
+        "service_version": "0.1.0",
+        "databases_open": len(store),
+        **uptime_info,
     }
 
 
@@ -284,6 +357,27 @@ def get_database_metadata(db_name: str):
         "storages": db.storages,
         "indices": db.indices,
         "views": db.views,
+    }
+
+@app.post("/databases/{db_name}/close")
+def close_database(db_name: str):
+    """
+    Closes a specific database.
+
+    Args:
+        db_name (str): The name of the database.
+
+    Returns:
+        dict: Database closure confirmation.
+
+    Raises:
+        HTTPException: If the database is not found.
+    """
+    log.info("Closing database: %s", db_name)
+    store_close_database(db_name)
+    return {
+        "name": db_name,
+        "message": f"Database '{db_name}' closed successfully",
     }
 
 
@@ -733,3 +827,129 @@ def query_storage_path(
     except Exception as exc:
         log.error("Failed to query path '%s' in storage '%s': %s", query, storage_name, exc)
         raise HTTPException(status_code=500, detail="Failed to query storage path")
+
+# Server daemon CLI using Click
+
+@click.group()
+@click.pass_context
+def cli(ctx):
+    """XDBX REST Service daemon manager."""
+    ctx.obj = {}
+
+@cli.command(name="run")
+@click.option("--host", default="127.0.0.1", show_default=True, help="Host address to bind the REST service.")
+@click.option("--port", default=8000, show_default=True, type=int, help="Port to bind the REST service.")
+@click.option("--workers", default=1, show_default=True, type=int, help="Number of worker processes to run.")
+@click.option(
+    "--logfile",
+    type=click.Path(dir_okay=False, writable=True, allow_dash=True),
+    default="-",
+    show_default=True,
+    help="Path to a log file for the service, or '-' to write logs to stdout.",
+)
+@click.option("--loglevel", default="info", show_default=True, type=click.Choice(["debug", "info", "warning", "error", "critical"], case_sensitive=False), help="Logging level for the REST service.")
+@click.option("--reload", is_flag=True, default=False, help="Enable auto-reload for development (not recommended with workers > 1).")
+@click.pass_context
+def run(ctx, host: str, port: int, workers: int, logfile: Optional[str], loglevel: str, reload: bool):
+    """Run the XDBX REST service as a daemon with logging and worker configuration."""
+    if reload and workers != 1:
+        raise click.ClickException("Reload mode cannot be used with multiple workers.")
+
+    _configure_service_logging(logfile, loglevel)
+    log.info("Starting XDBX REST service daemon on %s:%s with %s worker(s)", host, port, workers)
+    if logfile:
+        log.info("Service logs will be written to %s", logfile)
+
+    config = uvicorn.Config(
+        "xdbx.service.rest_service:app",
+        host=host,
+        port=port,
+        log_level=loglevel,
+        workers=workers,
+        reload=reload,
+    )
+    server = uvicorn.Server(config)
+    server.run()
+
+@cli.command(name="start")
+@click.option("--host", default="127.0.0.1", show_default=True, help="Host address to bind the REST service.")
+@click.option("--port", default=8000, show_default=True, type=int, help="Port to bind the REST service.")
+@click.option("--workers", default=1, show_default=True, type=int, help="Number of worker processes to run.")
+@click.option(
+    "--logfile",
+    type=click.Path(dir_okay=False, writable=True, allow_dash=True),
+    default="-",
+    show_default=True,
+    help="Path to a log file for the service, or '-' to write logs to stdout.",
+)
+@click.option("--loglevel", default="info", show_default=True, type=click.Choice(["debug", "info", "warning", "error", "critical"], case_sensitive=False), help="Logging level for the REST service.")
+@click.option("--reload", is_flag=True, default=False, help="Enable auto-reload for development (not recommended with workers > 1).")
+@click.pass_context
+def start(ctx, host: str, port: int, workers: int, logfile: Optional[str], loglevel: str, reload: bool):
+    """Run the XDBX REST service as a daemon with logging and worker configuration."""
+    if reload and workers != 1:
+        raise click.ClickException("Reload mode cannot be used with multiple workers.")
+
+    _configure_service_logging(logfile, loglevel)
+    log.info("Starting XDBX REST service daemon on %s:%s with %s worker(s)", host, port, workers)
+    if logfile:
+        log.info("Service logs will be written to %s", logfile)
+
+    config = uvicorn.Config(
+        "xdbx.service.rest_service:app",
+        host=host,
+        port=port,
+        log_level=loglevel,
+        workers=workers,
+        reload=reload,
+    )
+    server = uvicorn.Server(config)
+    runner = Daemon(
+        'XDBX REST Service',
+        worker=server.run,
+        pidfile='xdbx_rest_service.pid',
+        work_dir='.',
+        stdout_file=logfile if logfile and logfile != "-" else None,
+        stderr_file=logfile if logfile and logfile != "-" else None,
+        uid=os.getuid(), gid=os.getgid()
+    )
+    runner.do_action('start')
+
+@cli.command('stop', short_help='Stop the XDBX REST Service')
+@click.option('-f', '--force', help='Force Stop', is_flag=True, default=False)
+def stop(force):
+    daemon = Daemon('XDBX REST Service', pidfile='xdbx_rest_service.pid')
+    daemon.stop(force=force)
+
+
+@cli.command('status', short_help='XDBX REST Service Status')
+@click.option('-j', '--json', help='Return Status JSON', default=False, is_flag=True)
+def status(json):
+    daemon = Daemon('XDBX REST Service', pidfile='xdbx_rest_service.pid')
+    daemon.status(json=json)
+
+
+@cli.command('restart', short_help='Restart XDBX REST Service')
+@click.option('-f', '--force', help='Force Stop', is_flag=True, default=False)
+@click.option("--host", default="127.0.0.1", show_default=True, help="Host address to bind the REST service.")
+@click.option("--port", default=8000, show_default=True, type=int, help="Port to bind the REST service.")
+@click.option("--workers", default=1, show_default=True, type=int, help="Number of worker processes to run.")
+@click.option(
+    "--logfile",
+    type=click.Path(dir_okay=False, writable=True, allow_dash=True),
+    default="-",
+    show_default=True,
+    help="Path to a log file for the service, or '-' to write logs to stdout.",
+)
+@click.option("--loglevel", default="info", show_default=True, type=click.Choice(["debug", "info", "warning", "error", "critical"], case_sensitive=False), help="Logging level for the REST service.")
+@click.option("--reload", is_flag=True, default=False, help="Enable auto-reload for development (not recommended with workers > 1).")
+@click.pass_context
+def restart(ctx, host, port, workers, logfile, loglevel, reload, force):
+    ctx.invoke(stop, force=force)
+    ctx.invoke(start, host=host, port=port, workers=workers, logfile=logfile, loglevel=loglevel, reload=reload)
+
+
+
+if __name__ == "__main__":
+    cli()
+

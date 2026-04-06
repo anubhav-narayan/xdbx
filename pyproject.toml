@@ -31,9 +31,13 @@ click-shell = "^2.1"
 fastapi = "^0.116.1"
 uvicorn = "^0.35.0"
 tabulate = "^0.10.0"
+asyncclick = "8.1.8"
+daemonocle = "^1.2.3"
 
 [tool.poetry.scripts]
 sdbx = "xdbx.shell:cli"
+restx = "xdbx.rest_shell:cli"
+xdbx-server = "xdbx.service.rest_service:cli"
 
 [tool.poetry.group.dev.dependencies]
 lark = "^1.2.2"
