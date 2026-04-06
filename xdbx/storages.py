@@ -410,7 +410,7 @@ class JSONStorage(UserDict):
         return f'JSON Storage: {self.name}'
 
     def __len__(self):
-        GET_LEN = f'SELECT COUNT(row_id) FROM "{self.name}"'
+        GET_LEN = f'SELECT COUNT(rowid) FROM "{self.name}"'
         rows = self.__conn.select_one(GET_LEN)[0]
         return rows if rows is not None else 0
 
@@ -450,6 +450,14 @@ class JSONStorage(UserDict):
         if item is None:
             raise KeyError(key)
         return json.loads(item[0])
+
+    def __delitem__(self, key):
+        if self.flag == 'r':
+            raise RuntimeError('Refusing to delete in read-only mode')
+        DEL_ITEM = f'DELETE FROM "{self.name}" WHERE "key" = ?'
+        self.__conn.execute(DEL_ITEM, (key,))
+        if self.__conn.autocommit:
+            self.commit()
 
     def get_path(self, path, default=None, delimiter="/"):
         """

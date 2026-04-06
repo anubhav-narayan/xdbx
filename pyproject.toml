@@ -1,14 +1,33 @@
 [tool.poetry]
-name = "XDBX"
-version = "0.5.1"
-description = "XDBX DataBase eXtention"
+name = "xdbx"
+version = "0.6.2"
+description = "A robust Python wrapper around SQLite3 providing dict-like API, multi-threading support, and REST service endpoints"
 authors = ["Anubhav Mattoo <anubhavmattoo@outlook.com>"]
 license = "MIT"
+readme = "README.md"
+homepage = "https://github.com/anubhav-narayan/xdbx"
+repository = "https://github.com/anubhav-narayan/xdbx"
+documentation = "https://github.com/anubhav-narayan/xdbx#readme"
+keywords = ["sqlite", "database", "json-storage", "rest-api", "cli", "threading"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Natural Language :: English",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Database",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 
 [tool.poetry.dependencies]
 python = "^3.10"
 click-shell = "^2.1"
-lark = "^1.2.2"
 fastapi = "^0.116.1"
 uvicorn = "^0.35.0"
 tabulate = "^0.10.0"
@@ -16,7 +35,8 @@ tabulate = "^0.10.0"
 [tool.poetry.scripts]
 sdbx = "xdbx.shell:cli"
 
-[tool.poetry.dev-dependencies]
+[tool.poetry.group.dev.dependencies]
+lark = "^1.2.2"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
