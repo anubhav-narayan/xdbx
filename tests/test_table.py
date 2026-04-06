@@ -29,8 +29,6 @@ class TestTable:
         item = table["u1"]
         print(item)
 
-    # Currently Failing
-    @pytest.mark.xfail(reason="Currently dicts are not supported completely, only tuples. This test will be updated when dict support is added.")
     def test_setitem_dict_update(self, table):
         table["u2"] = {"col1": "Bob"}
         table["u2"] = {"col1": "Robert"}

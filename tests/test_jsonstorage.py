@@ -142,3 +142,63 @@ class TestJSONStorage:
         assert result["nested"]["x"] == 1    # preserved
         assert result["nested"]["y"] == 99   # updated
         assert result["nested"]["z"] == 3    # added
+    
+    def test_len_empty_storage_is_zero(self, json_storage):
+        assert len(json_storage) == 0
+ 
+    def test_len_increments_on_insert(self, json_storage):
+        json_storage["a"] = {"v": 1}
+        assert len(json_storage) == 1
+        json_storage["b"] = {"v": 2}
+        assert len(json_storage) == 2
+ 
+    def test_len_unchanged_on_overwrite(self, json_storage):
+        json_storage["k"] = {"v": 1}
+        json_storage["k"] = {"v": 99}   # update, not insert
+        assert len(json_storage) == 1
+ 
+    def test_len_decrements_after_delete(self, json_storage):
+        json_storage["x"] = {"v": 1}
+        json_storage["y"] = {"v": 2}
+        assert len(json_storage) == 2
+        del json_storage["x"]
+        assert len(json_storage) == 1
+ 
+    def test_len_consistent_with_iter_count(self, json_storage):
+        for i in range(5):
+            json_storage[f"k{i}"] = {"n": i}
+        assert len(json_storage) == sum(1 for _ in json_storage)
+    
+    def test_delitem_removes_key(self, json_storage):
+        json_storage["x"] = {"v": 1}
+        del json_storage["x"]
+        assert "x" not in json_storage
+ 
+    def test_delitem_missing_key_raises_key_error(self, json_storage):
+        with pytest.raises(KeyError):
+            del json_storage["nobody"]
+ 
+    def test_delitem_reduces_len(self, json_storage):
+        json_storage["a"] = {"v": 1}
+        json_storage["b"] = {"v": 2}
+        del json_storage["a"]
+        assert len(json_storage) == 1
+ 
+    def test_delitem_key_no_longer_in_iter(self, json_storage):
+        json_storage["gone"] = {"v": 1}
+        json_storage["stay"] = {"v": 2}
+        del json_storage["gone"]
+        assert "gone" not in [k for k in json_storage]
+        assert "stay" in [k for k in json_storage]
+ 
+    def test_delitem_get_raises_after_delete(self, json_storage):
+        json_storage["tmp"] = {"v": 1}
+        del json_storage["tmp"]
+        with pytest.raises(KeyError):
+            _ = json_storage["tmp"]
+ 
+    def test_delitem_readonly_raises_runtime_error(self, json_storage):
+        json_storage["k"] = {"v": 1}
+        json_storage.flag = "r"
+        with pytest.raises(RuntimeError, match="read-only"):
+            del json_storage["k"]

@@ -77,7 +77,7 @@ class Table(UserDict):
         '''
         Return s a list of column names
         '''
-        GET_COLS = f'PRAGMA TABLE_INFO("{self.table_name}")'
+        GET_COLS = f'PRAGMA TABLE_INFO("{self.name}")'
         data = self.__conn.select(GET_COLS)
         return [x[1] for x in data]
 
@@ -107,7 +107,7 @@ class Table(UserDict):
         elif type(value) == dict:
             if key not in self:
                 value[self.columns[0]] = key
-                refs = [x for x in value]
+                refs = [x for x in value.keys()]
                 data = [x for x in value.values()]
                 ADD_ITEM = f'REPLACE INTO "{self.name}" {tuple(refs)}'\
                     + f' VALUES ({", ".join(["?" for x in data])})'
@@ -196,6 +196,12 @@ class Table(UserDict):
                 return self.get_idx(args)
             elif isinstance(args, str) and args in self.columns:
                 return self.get_col(args)
+            elif isinstance(args, str) and args not in self.columns:
+                GET_ITEM = f'SELECT * FROM "{self.name}" WHERE "{self.columns[0]}" = ? ORDER BY rowid'
+                item = self.__conn.select_one(GET_ITEM, (args,))
+                if item is None:
+                    raise KeyError(args)
+                return item
         # column select
         if len(args) >= 2:
             if args[0] in self:
@@ -218,7 +224,6 @@ class Table(UserDict):
     def __delitem__(self, key):
         if self.flag == 'r':
             raise RuntimeError('Refusing to delete in read-only mode')
-
         if key not in self:
             raise KeyError(key)
         DEL_ITEM = f'DELETE FROM "{self.name}" WHERE {self.columns[0]} = ?'
@@ -235,15 +240,6 @@ class Table(UserDict):
                      ORDER BY rowid'
         for x in self.__conn.select(GET_KEYS):
             yield x[0]
-
-    @property
-    def columns(self) -> list:
-        '''
-        Return s a list of column names
-        '''
-        GET_COLS = f'PRAGMA TABLE_INFO("{self.name}")'
-        data = self.__conn.select(GET_COLS)
-        return [x[1] for x in data]
 
     def add_foreign_key(self, colname: str, references: str):
         if self.flag == 'r':
@@ -454,6 +450,8 @@ class JSONStorage(UserDict):
     def __delitem__(self, key):
         if self.flag == 'r':
             raise RuntimeError('Refusing to delete in read-only mode')
+        if key not in self:
+            raise KeyError(key)
         DEL_ITEM = f'DELETE FROM "{self.name}" WHERE "key" = ?'
         self.__conn.execute(DEL_ITEM, (key,))
         if self.__conn.autocommit:
