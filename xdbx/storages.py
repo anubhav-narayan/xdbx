@@ -77,7 +77,7 @@ class Table(UserDict):
         '''
         Return s a list of column names
         '''
-        GET_COLS = f'PRAGMA TABLE_INFO("{self.table_name}")'
+        GET_COLS = f'PRAGMA TABLE_INFO("{self.name}")'
         data = self.__conn.select(GET_COLS)
         return [x[1] for x in data]
 
@@ -101,13 +101,13 @@ class Table(UserDict):
             if len(value) != len(self.columns) - 1:
                 raise ValueError("Incorrect number of values")
             data = [key]
-            data.extend([x for x in value])
+            data += [x for x in value]
             ADD_ITEM = f'REPLACE INTO "{self.name}" {tuple(self.columns)}'\
                 + f' VALUES ({", ".join(["?" for x in data])})'
         elif type(value) == dict:
             if key not in self:
                 value[self.columns[0]] = key
-                refs = [x for x in value]
+                refs = [x for x in value.keys()]
                 data = [x for x in value.values()]
                 ADD_ITEM = f'REPLACE INTO "{self.name}" {tuple(refs)}'\
                     + f' VALUES ({", ".join(["?" for x in data])})'
@@ -139,7 +139,7 @@ class Table(UserDict):
         '''
         GET_ITEM = f'SELECT * FROM "{self.name}"'\
             + f'WHERE "_rowid_" BETWEEN ? AND ?'
-        item = self.__conn.select(GET_ITEM, ((slc.start), (slc.stop)))
+        item = self.__conn.select(GET_ITEM, ((slc.start), (slc.stop-1)))
         if item is None:
             raise KeyError(slc[0])
         return [x for x in item][::slc.step]
@@ -196,6 +196,14 @@ class Table(UserDict):
                 return self.get_idx(args)
             elif isinstance(args, str) and args in self.columns:
                 return self.get_col(args)
+            elif isinstance(args, str) and args in self.keys():
+                GET_ITEM = f'SELECT * FROM "{self.name}" WHERE "{self.columns[0]}" = ? ORDER BY rowid'
+                item = self.__conn.select_one(GET_ITEM, (args,))
+                if item is None:
+                    raise KeyError(args)
+                return item
+            else:
+                raise KeyError(args)
         # column select
         if len(args) >= 2:
             if args[0] in self:
@@ -218,7 +226,6 @@ class Table(UserDict):
     def __delitem__(self, key):
         if self.flag == 'r':
             raise RuntimeError('Refusing to delete in read-only mode')
-
         if key not in self:
             raise KeyError(key)
         DEL_ITEM = f'DELETE FROM "{self.name}" WHERE {self.columns[0]} = ?'
@@ -235,15 +242,6 @@ class Table(UserDict):
                      ORDER BY rowid'
         for x in self.__conn.select(GET_KEYS):
             yield x[0]
-
-    @property
-    def columns(self) -> list:
-        '''
-        Return s a list of column names
-        '''
-        GET_COLS = f'PRAGMA TABLE_INFO("{self.name}")'
-        data = self.__conn.select(GET_COLS)
-        return [x[1] for x in data]
 
     def add_foreign_key(self, colname: str, references: str):
         if self.flag == 'r':
@@ -337,7 +335,7 @@ class Table(UserDict):
         elif otype == 'dict':
             for x in self:
                 ret_dict[x] = {
-                    k: v for k, v in zip(cols[1:], self[x])
+                    k: v for k, v in zip(cols[1:], self[x][1:])
                 }
             return ret_dict
         else:
@@ -345,7 +343,7 @@ class Table(UserDict):
                 'Please use \'column\', \'list\' or \'dict\' as otype'
             )
 
-    def to_sql(self):
+    def to_sql(self) -> str:
         '''
         Returns the table in SQLite Syntax
         '''
@@ -354,7 +352,7 @@ class Table(UserDict):
         if CREATE.find('IF NOT EXISTS') == -1:
             idx = CREATE.find("TABLE")
             CREATE = CREATE[:idx+5] + ' IF NOT EXISTS ' + CREATE[idx+5:]
-        VALUES = ',\n'.join([str(x) for x in self[::]])
+        VALUES = ',\n'.join([str(self[x]) for x in self.keys()])
         INSERT = f'INSERT INTO "{self.name}" VALUES\n' + VALUES
         return f'{CREATE};\n{INSERT};'
 
@@ -410,7 +408,7 @@ class JSONStorage(UserDict):
         return f'JSON Storage: {self.name}'
 
     def __len__(self):
-        GET_LEN = f'SELECT COUNT(row_id) FROM "{self.name}"'
+        GET_LEN = f'SELECT COUNT(rowid) FROM "{self.name}"'
         rows = self.__conn.select_one(GET_LEN)[0]
         return rows if rows is not None else 0
 
@@ -450,6 +448,16 @@ class JSONStorage(UserDict):
         if item is None:
             raise KeyError(key)
         return json.loads(item[0])
+
+    def __delitem__(self, key):
+        if self.flag == 'r':
+            raise RuntimeError('Refusing to delete in read-only mode')
+        if key not in self:
+            raise KeyError(key)
+        DEL_ITEM = f'DELETE FROM "{self.name}" WHERE "key" = ?'
+        self.__conn.execute(DEL_ITEM, (key,))
+        if self.__conn.autocommit:
+            self.commit()
 
     def get_path(self, path, default=None, delimiter="/"):
         """
