@@ -357,7 +357,7 @@ uvicorn.run(app, host="0.0.0.0", port=8000)
 - `GET /databases/{db_name}/storages/{storage_name}/items/{item_key}` — read an item
 - `PUT /databases/{db_name}/storages/{storage_name}/items/{item_key}` — create or update an item
 - `DELETE /databases/{db_name}/storages/{storage_name}/items/{item_key}` — delete an item
-- `GET /databases/{db_name}/storages/{storage_name}/path?path=...` — query JSON storage by nested path
+- `GET /databases/{db_name}/storages/{storage_name}/{query:path}` — query JSON storage by nested path
 
 ### Example API Calls
 
@@ -441,7 +441,7 @@ class Table(UserDict):
     close() -> None
 ```
 
----
+--- -->
 
 ## Advanced Examples
 
@@ -512,14 +512,14 @@ db_read1.close()
 db_read2.close()
 ```
 
---- -->
+---
 
 ## Testing
 
 Run the test suite:
 
 ```bash
-poetry run pytest tests/ -v
+poetry run pytest
 ```
 
 Run specific test categories:
@@ -548,11 +548,15 @@ poetry run pytest tests/ -v
 XDBX is released under the MIT License. See [LICENSE.md](LICENSE.md) for full details.
 
 ```
-Copyright (c) 2021-2025 Anubhav Mattoo
+# MIT License
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction...
+Copyright (c) 2021-2026 Anubhav Mattoo.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
 ---
