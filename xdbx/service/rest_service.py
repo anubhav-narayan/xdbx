@@ -301,7 +301,7 @@ def create_database(request: DatabaseCreateRequest):
         log.warning("Attempt to create existing database: %s", request.name)
         raise HTTPException(status_code=409, detail=f"Database '{request.name}' already exists")
 
-    filename = ":memory:" if request.memory else request.name
+    filename = ":memory:" if request.memory else f"{request.name}.db"
     try:
         store[request.name] = Database(
             filename,
