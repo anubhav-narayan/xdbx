@@ -2,7 +2,7 @@
 
 ![License](https://img.shields.io/badge/licence-MIT-green)
 ![Python](https://img.shields.io/badge/python-3.10+-blue)
-![Version](https://img.shields.io/badge/version-0.5.1-brightgreen)
+![Version](https://img.shields.io/badge/version-0.6.2-brightgreen)
 
 XDBX (Database Extension) is a robust Python 3.10+ wrapper around SQLite3 that provides a powerful, Pythonic interface for database operations. It supports both traditional relational tables and JSON document storage with a dict-like API, comprehensive multi-threading support, and optional REST service endpoints.
 
@@ -527,27 +527,6 @@ Run specific test categories:
 ```bash
 poetry run pytest tests/ -m unit -v
 ```
-
----
-
-## Project Structure
-
-```
-xdbx/
-├── __init__.py              # Main exports (Database, Transaction)
-├── database.py              # Database class and core logic
-├── storages.py              # JSONStorage and Table implementations
-├── threads.py               # Multi-threading support
-├── transaction.py           # Transaction context manager
-├── shell.py                 # CLI interface
-├── logger.py                # Logging configuration
-└── service/
-    ├── rest_service.py      # FastAPI REST endpoint
-    ├── udp_service.py       # UDP service
-    └── protocol.py          # Service protocols
-```
-
----
 
 ## Contributing
 
