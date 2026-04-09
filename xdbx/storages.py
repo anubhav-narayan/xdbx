@@ -23,6 +23,8 @@ Classes:
 """
 from typing import Any, Dict, List, Optional, Union
 
+from typing import Any, Dict, List, Optional, Union
+
 from .threads import SqliteMultiThread
 from collections import UserDict
 
@@ -89,7 +91,7 @@ class Table(UserDict):
         return self
 
     def __exit__(self, *exc_info):
-        if self.__conn.autocommit:
+        if self.__conn.autocommit and self.__conn.transaction_depth == 0:
             self.commit()
 
     def __repr__(self):
@@ -122,7 +124,7 @@ class Table(UserDict):
         else:
             raise TypeError("Incorrect value format, use tuple or dict")
         self.__conn.execute(ADD_ITEM, tuple(data))
-        if self.__conn.autocommit:
+        if self.__conn.autocommit and self.__conn.transaction_depth == 0:
             self.commit()
 
     def get_idx(self, idx):
@@ -232,7 +234,7 @@ class Table(UserDict):
             raise KeyError(key)
         DEL_ITEM = f'DELETE FROM "{self.name}" WHERE {self.columns[0]} = ?'
         self.__conn.execute(DEL_ITEM, (key,))
-        if self.__conn.autocommit:
+        if self.__conn.autocommit and self.__conn.transaction_depth == 0:
             self.commit()
 
     def rename(self):
@@ -252,7 +254,7 @@ class Table(UserDict):
         FRN_KEY = f'ALTER TABLE "{self.name}" ADD COLUMN "{colname}" TEXT'\
             + f' REFERENCES "{references}"'
         self.__conn.execute(FRN_KEY)
-        if self.__conn.autocommit:
+        if self.__conn.autocommit and self.__conn.transaction_depth == 0:
             self.commit()
 
     def add_column(self, colname: str, dtype: str = 'TEXT'):
@@ -264,7 +266,7 @@ class Table(UserDict):
 
         NEW_COL = f'ALTER TABLE "{self.name}" ADD COLUMN "{colname}" {dtype}'
         self.__conn.execute(NEW_COL)
-        if self.__conn.autocommit:
+        if self.__conn.autocommit and self.__conn.transaction_depth == 0:
             self.commit()
 
     def drop_column(self, colname: str):
@@ -276,7 +278,7 @@ class Table(UserDict):
 
         DROP_COL = f'ALTER TABLE "{self.name}" DROP COLUMN "{colname}"'
         self.__conn.execute(DROP_COL)
-        if self.__conn.autocommit:
+        if self.__conn.autocommit and self.__conn.transaction_depth == 0:
             self.commit()
 
     def rename_column(self, colname: str, new_colname: str,
@@ -290,7 +292,7 @@ class Table(UserDict):
         REM_COL = f'ALTER TABLE "{self.name}"\
          RENAME COLUMN "{colname}" TO "{new_colname}"'
         self.__conn.execute(REM_COL)
-        if self.__conn.autocommit:
+        if self.__conn.autocommit and self.__conn.transaction_depth == 0:
             self.commit()
 
     def __len__(self):
@@ -403,7 +405,7 @@ class JSONStorage(UserDict):
         return self
 
     def __exit__(self, *exc_info):
-        if self.__conn.autocommit:
+        if self.__conn.autocommit and self.__conn.transaction_depth == 0:
             self.commit()
 
     def __repr__(self):
@@ -440,7 +442,7 @@ class JSONStorage(UserDict):
         else:
             raise TypeError("Incorrect value format, use dict")
         self.__conn.execute(ADD_ITEM, data)
-        if self.__conn.autocommit:
+        if self.__conn.autocommit and self.__conn.transaction_depth == 0:
             self.commit()
 
     def __getitem__(self, key):
@@ -458,7 +460,7 @@ class JSONStorage(UserDict):
             raise KeyError(key)
         DEL_ITEM = f'DELETE FROM "{self.name}" WHERE "key" = ?'
         self.__conn.execute(DEL_ITEM, (key,))
-        if self.__conn.autocommit:
+        if self.__conn.autocommit and self.__conn.transaction_depth == 0:
             self.commit()
 
     def get_path(self, path, default=None, delimiter="/"):
@@ -524,6 +526,75 @@ class JSONStorage(UserDict):
         path = path.strip(delimiter)
         keys = path.split(delimiter)
         return resolve(self, keys, default, delimiter=delimiter)
+
+    def get_path_value(self, key, path, default=None, delimiter="/"):
+        """Get a single value at the given path for the specified key."""
+        if key not in self:
+            return default
+        obj = self[key]
+        keys = path.split(delimiter)
+        current = obj
+        for k in keys:
+            if isinstance(current, dict) and k in current:
+                current = current[k]
+            else:
+                return default
+        return current
+
+    def set_path(self, key, path, value, delimiter="/"):
+        """Set a value at the given path for the specified key."""
+        if key not in self:
+            raise KeyError(f"Key {key} not found")
+        obj = self[key]
+        keys = path.split(delimiter)
+        current = obj
+        for k in keys[:-1]:
+            if not isinstance(current, dict):
+                raise TypeError(f"Cannot set path {path}: {k} is not a dict")
+            if k not in current:
+                current[k] = {}
+            current = current[k]
+        current[keys[-1]] = value
+        self[key] = obj
+
+    def del_path(self, key, path, delimiter="/"):
+        """Delete the value at the given path for the specified key."""
+        if key not in self:
+            raise KeyError(f"Key {key} not found")
+        obj = self[key]
+        keys = path.split(delimiter)
+        current = obj
+        for k in keys[:-1]:
+            if not isinstance(current, dict) or k not in current:
+                raise KeyError(f"Path {path} not found")
+            current = current[k]
+        if not isinstance(current, dict) or keys[-1] not in current:
+            raise KeyError(f"Path {path} not found")
+        del current[keys[-1]]
+        self[key] = obj
+
+    def add_path(self, key, path, value, delimiter="/"):
+        """Add value at path: set if not exists, append if list."""
+        if key not in self:
+            raise KeyError(f"Key {key} not found")
+        obj = self[key]
+        keys = path.split(delimiter)
+        current = obj
+        for k in keys[:-1]:
+            if not isinstance(current, dict):
+                raise TypeError(f"Cannot add to path {path}: {k} is not a dict")
+            if k not in current:
+                current[k] = {}
+            current = current[k]
+        last_key = keys[-1]
+        if last_key not in current:
+            current[last_key] = value
+        else:
+            if isinstance(current[last_key], list):
+                current[last_key].append(value)
+            else:
+                current[last_key] = value  # overwrite
+        self[key] = obj
 
     @property
     def columns(self) -> list:
@@ -836,7 +907,12 @@ class JSONStorage(UserDict):
         #  Step 5 - paginate                                                 #
         # ------------------------------------------------------------------ #
  
-        return rows[offset: offset + limit] if limit else rows[offset:]
+        rows = rows[offset: offset + limit] if limit else rows[offset:]
+        ret = {}
+        for r in rows:
+            key = r.pop("_key")
+            ret[key] = r
+        return ret
     
     def merge(self, dict2: dict):
         '''

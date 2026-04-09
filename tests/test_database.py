@@ -1,6 +1,6 @@
 from typing import Generator
 import pytest
-from xdbx import Database
+from xdbx import Database, Transaction
 from xdbx.storages import JSONStorage, Table
 
 @pytest.fixture
@@ -65,3 +65,31 @@ class TestDatabase:
     def test_getitem_table_type(self, mem_db):
         tbl = mem_db["rows", "table"]
         assert isinstance(tbl, Table)
+
+    def test_transaction_context_manager_suppresses_autocommit(self):
+        db = Database(":memory:", autocommit=True, journal_mode="WAL")
+        storage = db["txn_test", "json"]
+        assert db.conn.transaction_depth == 0
+
+        with Transaction("txn", db.conn):
+            assert db.conn.transaction_depth == 1
+            storage["a"] = {"value": 1}
+            assert db.conn.transaction_depth == 1
+            assert storage["a"]["value"] == 1
+
+        assert db.conn.transaction_depth == 0
+        assert storage["a"]["value"] == 1
+        db.close(do_log=False, force=True)
+
+    def test_transaction_context_manager_rolls_back_on_error(self):
+        db = Database(":memory:", autocommit=True, journal_mode="WAL")
+        storage = db["txn_rollback"]
+
+        with pytest.raises(RuntimeError, match="boom"):
+            with Transaction("txn", db.conn):
+                storage["a"] = {"value": 1}
+                raise RuntimeError("boom")
+
+        assert db.conn.transaction_depth == 0
+        assert "a" not in storage.keys()
+        db.close(do_log=False, force=True)
