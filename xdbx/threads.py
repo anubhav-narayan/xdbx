@@ -245,6 +245,7 @@ class SqliteMultiThread(Thread):
         self.exception = None
         self._sqlitedict_thread_initialized = None
         self.timeout = timeout
+        self.transaction_depth = 0
         self.log = logging.getLogger('xdbx.SqliteMultithread')
         self.start()
 
@@ -326,7 +327,7 @@ class SqliteMultiThread(Thread):
                         res.put(rec)
                     res.put('--no more--')
 
-                if self.autocommit:
+                if self.autocommit and self.transaction_depth == 0:
                     conn.commit()
 
         self.log.debug('received: %s, send: --no more--', req)

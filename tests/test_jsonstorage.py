@@ -16,6 +16,17 @@ def json_storage(mem_db: Database) -> JSONStorage:
     """Empty JSONStorage inside an in-memory Database."""
     return mem_db["items", "json"]
 
+@pytest.fixture
+def populate_storage(mem_db: Database) -> JSONStorage:
+    """Helper to populate a JSONStorage with sample records."""
+    json_storage = mem_db["items", "json"]
+    # Insert some sample records
+    json_storage["u1"] = {"name": "Alice", "age": 30, "dept": "eng", "salary": 100}
+    json_storage["u2"] = {"name": "Bob",   "age": 25, "dept": "eng", "salary": 150}
+    json_storage["u3"] = {"name": "Cara",  "age": 40, "dept": "hr",  "salary": 200}
+    json_storage["u4"] = {"name": "Dan",   "age": 20, "dept": "hr",  "salary": 120}
+    return json_storage
+
 @pytest.mark.unit
 class TestJSONStorage:
     """JSONStorage CRUD, path queries, and serialisation helpers."""
@@ -202,3 +213,56 @@ class TestJSONStorage:
         json_storage.flag = "r"
         with pytest.raises(RuntimeError, match="read-only"):
             del json_storage["k"]
+    # ── filter ──────────────────────────────────────────────────────────────
+    def test_filter_and_select(self, populate_storage):
+        result = populate_storage.query({
+            "filter": {"path": "age", "op": "gte", "value": 30},
+            "select": ["name", "dept"],
+            "sort":   [{"field": "name", "order": "asc"}],
+        })
+        assert [r["name"] for r in result.values()] == ["Alice", "Cara"]
+
+
+    def test_compound_filter(self, populate_storage):
+        result = populate_storage.query({
+            "filter": {
+                "and": [
+                    {"path": "dept", "op": "eq", "value": "eng"},
+                    {"path": "salary", "op": "gte", "value": 120},
+                ]
+            }
+        })
+        assert len(result) == 1
+        assert 'u2' in result
+        assert result['u2']["name"] == "Bob"
+
+
+    def test_scalar_aggregate(self, populate_storage):
+        result = populate_storage.query({
+            "filter": {"path": "dept", "op": "eq", "value": "eng"},
+            "aggregate": {"op": "avg", "field": "salary"},
+        })
+        assert result == pytest.approx(125.0)
+
+
+    def test_group_by_aggregate(self, populate_storage):
+        result = populate_storage.query({
+            "aggregate": {
+                "op": "group_by", "by": "dept",
+                "field": "salary", "sub_op": "avg",
+            },
+            "sort": [{"field": "dept", "order": "asc"}],
+        })
+        # Expect averages per department
+        assert result["eng"] == pytest.approx(125.0)
+        assert result["hr"] == pytest.approx(160.0)
+
+
+    def test_pagination(self, populate_storage):
+        result = populate_storage.query({
+            "sort": [{"field": "name", "order": "asc"}],
+            "limit": 2,
+            "offset": 1,
+        })
+        # Sorted names: Alice, Bob, Cara, Dan → offset 1, limit 2 → Bob, Cara
+        assert [r["name"] for r in result.values()] == ["Bob", "Cara"]

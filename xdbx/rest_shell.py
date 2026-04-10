@@ -259,6 +259,30 @@ def get_item(ctx, db, storage, key):
     print_response(response)
 
 
+@cli.command('insert', short_help='Bulk upsert multiple items into a storage')
+@click.option('--storage-type', default=None, type=click.Choice(['json', 'table']), help='Optional storage type override')
+@click.argument('db', type=str)
+@click.argument('storage', type=str)
+@click.argument('items', type=str)
+@click.pass_context
+def bulk_upsert(ctx, db, storage, items, storage_type):
+    try:
+        parsed = json.loads(items)
+    except json.JSONDecodeError as exc:
+        raise click.ClickException(f'Invalid JSON for bulk upsert items: {exc}')
+
+    if not isinstance(parsed, dict):
+        raise click.ClickException('Bulk upsert items must be a JSON object keyed by item key.')
+
+    params = {}
+    if storage_type:
+        params['storage_type'] = storage_type
+
+    payload = {'items': parsed}
+    response = api_request(ctx.obj['base_url'], 'POST', f'/databases/{urllib.parse.quote(db)}/storages/{urllib.parse.quote(storage)}/items', data=payload, params=params)
+    print_response(response)
+
+
 @cli.command('put-item', short_help='Create or update a storage item')
 @click.argument('db', type=str)
 @click.argument('storage', type=str)
