@@ -1,7 +1,7 @@
 import pytest
 from typing import Generator
-from xdbx import Database
-from xdbx.storages import Table
+from db86 import Database
+from db86.storages import Table
 
 
 @pytest.fixture

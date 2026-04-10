@@ -1,7 +1,7 @@
 from typing import Generator
 import pytest
-from xdbx import Database, Transaction
-from xdbx.storages import JSONStorage, Table
+from db86 import Database, Transaction
+from db86.storages import JSONStorage, Table
 
 @pytest.fixture
 def mem_db() -> Generator[Database, None, None]:

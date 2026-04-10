@@ -3,7 +3,7 @@ import pytest
 from click.testing import CliRunner
 from unittest.mock import patch, MagicMock
 
-from xdbx import rest_shell
+from db86 import rest_shell
 
 
 def make_response(payload: dict, status=200):

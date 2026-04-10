@@ -1,5 +1,5 @@
 import pytest
-from xdbx.threads import SqliteMultiThread
+from db86.threads import SqliteMultiThread
 
 @pytest.mark.unit
 class TestSqliteMultiThread:

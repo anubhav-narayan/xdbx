@@ -2,7 +2,7 @@
 
 import pytest
 from fastapi.testclient import TestClient
-from xdbx.service.rest_service import app, store
+from db86.service.rest_service import app, store
 
 @pytest.fixture
 def client():

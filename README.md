@@ -1,12 +1,12 @@
-# XDBX - SQLite3 Database Extension
+# DB86 — the AE‑86 of databases
 
 ![License](https://img.shields.io/badge/licence-MIT-green)
 ![Python](https://img.shields.io/badge/python-3.10+-blue)
 ![Version](https://img.shields.io/badge/version-0.6.2-brightgreen)
 
-XDBX (Database Extension) is a robust Python 3.10+ wrapper around SQLite3 that provides a powerful, Pythonic interface for database operations. It supports both traditional relational tables and JSON document storage with a dict-like API, comprehensive multi-threading support, and optional REST service endpoints.
+DB86 is a robust Python 3.10+ wrapper around SQLite3 that provides a powerful, Pythonic interface for database operations. It supports both traditional relational tables and JSON document storage with a dict-like API, comprehensive multi-threading support, and optional REST service endpoints.
 
-Built on lessons from [sqlitedict](https://github.com/RaRe-Technologies/sqlitedict), XDBX modernizes the approach with enhanced features, thread safety, and flexible storage backends.
+Built on lessons from [sqlitedict](https://github.com/RaRe-Technologies/sqlitedict), DB86 modernizes the approach with enhanced features, thread safety, and flexible storage backends.
 
 ---
 
@@ -54,7 +54,6 @@ Built on lessons from [sqlitedict](https://github.com/RaRe-Technologies/sqlitedi
 - **Python**: 3.10 or higher
 - **Dependencies** (installed automatically):
   - `click-shell` - Interactive CLI framework
-  - `lark` - Parser library
   - `fastapi` - REST service framework
   - `uvicorn` - ASGI server
   - `tabulate` - Pretty-print database metadata
@@ -66,20 +65,20 @@ Built on lessons from [sqlitedict](https://github.com/RaRe-Technologies/sqlitedi
 ### Via Poetry (Recommended)
 
 ```bash
-poetry add xdbx
+poetry add db86
 ```
 
 ### Via pip
 
 ```bash
-pip install xdbx
+pip install db86
 ```
 
 ### From Source
 
 ```bash
-git clone https://github.com/anubhav-narayan/xdbx.git
-cd xdbx
+git clone https://github.com/anubhav-narayan/db86.git
+cd db86
 poetry install
 ```
 
@@ -90,7 +89,7 @@ poetry install
 ### Basic Example: Key-Value Storage
 
 ```python
-from xdbx import Database
+from db86 import Database
 
 # Create or open a database
 db = Database('./my_db.sqlite', autocommit=True)
@@ -118,7 +117,7 @@ mydict.close()
 ### Using Context Manager (Recommended)
 
 ```python
-from xdbx import Database
+from db86 import Database
 
 with Database('./my_db.sqlite', autocommit=True) as db:
     storage = db['data']
@@ -130,7 +129,7 @@ with Database('./my_db.sqlite', autocommit=True) as db:
 ### In-Memory Database
 
 ```python
-from xdbx import Database
+from db86 import Database
 
 db = Database(':memory:')  # No file created
 table = db['temp_data', 'json']
@@ -147,7 +146,7 @@ db.close()
 #### Creating and Opening Databases
 
 ```python
-from xdbx import Database
+from db86 import Database
 
 # File-based database (creates if not exists)
 db = Database('./data.sqlite', flag='c', autocommit=True)
@@ -200,7 +199,7 @@ with Database('./db.sqlite') as db:
 JSON Storage is the default mode for flexible, document-style data storage:
 
 ```python
-from xdbx import Database
+from db86 import Database
 
 db = Database('./db.sqlite')
 
@@ -248,7 +247,7 @@ db.close()
 Tables provide relational storage with columns and schema:
 
 ```python
-from xdbx import Database
+from db86 import Database
 
 db = Database('./db.sqlite')
 
@@ -276,7 +275,7 @@ db.close()
 #### Autocommit vs Manual Commit
 
 ```python
-from xdbx import Database
+from db86 import Database
 
 # Autocommit (safer, slower)
 db_auto = Database('./db.sqlite', autocommit=True)
@@ -310,7 +309,7 @@ db = Database('./db.sqlite', journal_mode='OFF')
 
 <!-- ## CLI Tool
 
-XDBX includes an interactive management shell:
+DB86 includes an interactive management shell:
 
 ```bash
 sdbx
@@ -332,10 +331,10 @@ dbx> exit                           # Close and exit
 
 ## REST Service
 
-XDBX provides a RESTful API for remote database access.
+DB86 provides a RESTful API for remote database access.
 
 ```python
-from xdbx.service.rest_service import app
+from db86.service.rest_service import app
 import uvicorn
 
 # Run the service
@@ -448,7 +447,7 @@ class Table(UserDict):
 ### Transactions
 
 ```python
-from xdbx import Database, Transaction
+from db86 import Database, Transaction
 
 db = Database('./db.sqlite')
 
@@ -535,8 +534,8 @@ Contributions are welcome! Please feel free to submit pull requests or open issu
 ### Development Setup
 
 ```bash
-git clone https://github.com/anubhav-narayan/xdbx.git
-cd xdbx
+git clone https://github.com/anubhav-narayan/db86.git
+cd db86
 poetry install
 poetry run pytest tests/ -v
 ```
@@ -545,7 +544,7 @@ poetry run pytest tests/ -v
 
 ## License
 
-XDBX is released under the MIT License. See [LICENSE.md](LICENSE.md) for full details.
+DB86 is released under the MIT License. See [LICENSE.md](LICENSE.md) for full details.
 
 ```
 # MIT License
@@ -568,5 +567,5 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ---
 
-**Questions?** Open an issue on [GitHub](https://github.com/anubhav-narayan/xdbx/issues)
+**Questions?** Open an issue on [GitHub](https://github.com/anubhav-narayan/DB86/issues)
 

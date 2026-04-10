@@ -1,7 +1,7 @@
 from typing import Generator
 import pytest
-from xdbx import Database
-from xdbx.storages import JSONStorage
+from db86 import Database
+from db86.storages import JSONStorage
 import json
 
 @pytest.fixture

@@ -13,8 +13,8 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from contextlib import asynccontextmanager
 from pydantic import BaseModel
 
-from xdbx.database import Database
-from xdbx.storages import JSONStorage, Table
+from db86.database import Database
+from db86.storages import JSONStorage, Table
 
 store: Dict[str, Database] = {}
 
