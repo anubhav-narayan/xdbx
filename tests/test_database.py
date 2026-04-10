@@ -86,6 +86,7 @@ class TestDatabase:
         storage = db["txn_rollback"]
 
         with pytest.raises(RuntimeError, match="boom"):
+            storage.commit()
             with Transaction("txn", db.conn):
                 assert db.conn.transaction_depth > 0
                 storage["a"] = {"value": 1}
