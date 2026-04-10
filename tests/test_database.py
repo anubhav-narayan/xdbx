@@ -93,5 +93,5 @@ class TestDatabase:
                 raise RuntimeError("boom")
 
         assert db.conn.transaction_depth == 0
-        assert "a" not in storage.keys()
+        assert "a" not in storage
         db.close(do_log=False, force=True)
