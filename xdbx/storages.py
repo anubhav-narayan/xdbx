@@ -429,6 +429,7 @@ class JSONStorage(UserDict):
 
         if "/" in key:
             self.set_path(key, value)
+            return
 
         if type(value) == dict:
             import json
@@ -540,40 +541,48 @@ class JSONStorage(UserDict):
             delimiter (str): Delimiter used to split the path.
         """
 
-        def assign(current, keys, value, prefix):
+        def assign(current, keys, value):
             if not keys:
-                yield delimiter.join(prefix)
                 return value
 
-            key, rest = keys[0], keys[1:]
+            key = keys[0]
+            rest = keys[1:]
 
             if key == "*":
-                if isinstance(current, dict):
+                if isinstance(current, (dict, UserDict)):
                     for subkey in current:
-                        current[subkey] = assign(current[subkey], rest, value, prefix + [str(subkey)])
-                        yield delimiter.join(prefix + [str(subkey)])
+                        current[subkey] = assign(current[subkey], rest, value)
                 elif isinstance(current, list):
                     for idx in range(len(current)):
-                        current[idx] = assign(current[idx], rest, value, prefix + [str(idx)])
-                        yield delimiter.join(prefix + [str(idx)])
+                        current[idx] = assign(current[idx], rest, value)
+                else:
+                    # Can't expand '*' on non-iterable
+                    return current
                 return current
+
             else:
-                if isinstance(current, dict):
-                    if key not in current:
+                if isinstance(current, (dict, UserDict)):
+                    if key not in current or not isinstance(current[key], (dict, list, UserDict)):
+                        # Create intermediate dict if missing
                         current[key] = {} if rest else None
-                    current[key] = assign(current[key], rest, value, prefix + [key])
-                    yield delimiter.join(prefix + [key])
+                    current[key] = assign(current[key], rest, value)
                 elif isinstance(current, list):
                     idx = int(key)
                     while len(current) <= idx:
                         current.append({})
-                    current[idx] = assign(current[idx], rest, value, prefix + [str(idx)])
-                    yield delimiter.join(prefix + [str(idx)])
+                    current[idx] = assign(current[idx], rest, value)
+                else:
+                    # Replace non-container with dict if more keys remain
+                    if rest:
+                        current = {}
+                        current[key] = assign({}, rest, value)
+                    else:
+                        current = {key: value}
                 return current
 
         path = path.strip(delimiter)
         keys = path.split(delimiter)
-        yield from assign(self, keys, value, prefix=[])
+        assign(self, keys, value)
 
     def get_path_value(self, key, path, default=None, delimiter="/"):
         """Get a single value at the given path for the specified key."""
