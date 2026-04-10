@@ -32,4 +32,4 @@ jobs:
       run: |
         poetry install --no-interaction --no-ansi
         poetry run python3 -m pip install pytest pytest-cov pytest-xdist
-        poetry run python3 -m pytest -n 2 --cov=xdbx --cov-report=xml -q
+        poetry run python3 -m pytest -n 2 --cov=db86 --cov-report=xml -q
