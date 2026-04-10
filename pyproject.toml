@@ -1,13 +1,13 @@
 [tool.poetry]
-name = "xdbx"
+name = "db86"
 version = "0.6.2"
 description = "A robust Python wrapper around SQLite3 providing dict-like API, multi-threading support, and REST service endpoints"
 authors = ["Anubhav Mattoo <anubhavmattoo@outlook.com>"]
 license = "MIT"
 readme = "README.md"
-homepage = "https://github.com/anubhav-narayan/xdbx"
-repository = "https://github.com/anubhav-narayan/xdbx"
-documentation = "https://github.com/anubhav-narayan/xdbx#readme"
+homepage = "https://github.com/anubhav-narayan/db86"
+repository = "https://github.com/anubhav-narayan/db86"
+documentation = "https://github.com/anubhav-narayan/db86#readme"
 keywords = ["sqlite", "database", "json-storage", "rest-api", "cli", "threading"]
 classifiers = [
     "Development Status :: 4 - Beta",
