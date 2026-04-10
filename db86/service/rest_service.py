@@ -235,7 +235,7 @@ def table_row_as_dict(table: Table, key: str):
     if len(cols) == 1:
         return {cols[0]: key}
 
-    row = table[key, *cols[1:]]
+    row = table[(key, *cols[1:])]
     return {cols[0]: key, **dict(zip(cols[1:], row))}
 
 
