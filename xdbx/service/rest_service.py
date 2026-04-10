@@ -82,12 +82,12 @@ def store_close_database(name: str) -> None:
         raise HTTPException(status_code=404, detail=f"Database '{name}' not found")
 
 
-app_start_time = datetime.datetime.utcnow()
+app_start_time = datetime.datetime.now(datetime.timezone.utc)
 
 
 def _format_uptime(start: datetime.datetime) -> Dict[str, Any]:
     """Return uptime metadata from the given start time."""
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now(datetime.timezone.utc)
     uptime = now - start
     seconds = int(uptime.total_seconds())
     days, remainder = divmod(seconds, 86400)
@@ -101,6 +101,38 @@ def _format_uptime(start: datetime.datetime) -> Dict[str, Any]:
         "current_time": now.replace(microsecond=0).isoformat() + "Z",
     }
 
+def _get_system_metrics() -> Dict[str, Any]:
+    """Gather system resource metrics."""
+    import psutil
+    try:
+        process = psutil.Process(os.getpid())
+        
+        # Memory info
+        mem_info = process.memory_info()
+        memory_percent = process.memory_percent()
+        
+        # CPU info
+        cpu_percent = process.cpu_percent(interval=0.1)
+        
+        # System-wide info
+        vm = psutil.virtual_memory()
+        disk = psutil.disk_usage('/')
+        
+        return {
+            "process": {
+                "memory_mb": round(mem_info.rss / 1024 / 1024, 2),
+                "memory_percent": round(memory_percent, 2),
+                "cpu_percent": round(cpu_percent, 2),
+            },
+            "system": {
+                "memory_available_mb": round(vm.available / 1024 / 1024, 2),
+                "memory_percent": round(vm.percent, 2),
+                "disk_usage_percent": round(disk.percent, 2),
+            }
+        }
+    except Exception as e:
+        log.warning(f"Failed to gather system metrics: {e}")
+        return {"error": "Unable to gather system metrics"}
 
 def _configure_service_logging(logfile: Optional[str], loglevel: str) -> None:
     """Configure default logging handlers for the REST service."""
@@ -273,12 +305,14 @@ def health_check():
     """
     log.info("Health check requested")
     uptime_info = _format_uptime(app_start_time)
+    system_metric = _get_system_metrics()
     return {
         "status": "Success",
         "message": "XDBX REST Service is running",
         "service_version": "0.1.0",
         "databases_open": len(store),
-        **uptime_info,
+        "system_metrics": system_metric,
+        **uptime_info
     }
 
 
@@ -296,7 +330,7 @@ def create_database(request: DatabaseCreateRequest):
     Raises:
         HTTPException: If the database already exists or creation fails.
     """
-    log.info("Create database request: %s", request.dict())
+    log.info(f"Create database request: {request.model_dump()}")
     if request.name in store:
         log.warning("Attempt to create existing database: %s", request.name)
         raise HTTPException(status_code=409, detail=f"Database '{request.name}' already exists")
@@ -378,6 +412,7 @@ def close_database(db_name: str):
     return {
         "name": db_name,
         "message": f"Database '{db_name}' closed successfully",
+        "status": "Success"
     }
 
 
@@ -422,11 +457,11 @@ def create_storage(db_name: str, request: StorageCreateRequest):
     Raises:
         HTTPException: If the database or storage already exists, or creation fails.
     """
-    log.info("Create storage request for database '%s': %s", db_name, request.dict())
+    log.info(f"Create storage request for database '{db_name}': {request.model_dump()}")
     db = get_database(db_name)
     storage_type = validate_storage_type(request.storage_type)
     if request.name in db:
-        log.warning("Storage '%s' already exists in database '%s'", request.name, db_name)
+        log.warning(f"Storage '{request.name}' already exists in database '{db_name}'")
         raise HTTPException(status_code=409, detail=f"Storage '{request.name}' already exists")
 
     try:
@@ -434,7 +469,7 @@ def create_storage(db_name: str, request: StorageCreateRequest):
             db[request.name, "table"]
         else:
             db[request.name, "json"]
-        log.info("Created %s storage '%s' in database '%s'", storage_type, request.name, db_name)
+        log.info(f"Created {storage_type} storage '{request.name}' in database '{db_name}'")
         return {
             "status": "Success",
             "message": f"Created {storage_type} storage '{request.name}'",
@@ -442,7 +477,7 @@ def create_storage(db_name: str, request: StorageCreateRequest):
             "storage_type": storage_type,
         }
     except Exception as exc:
-        log.error("Failed to create storage '%s' in database '%s': %s", request.name, db_name, exc)
+        log.error(f"Failed to create storage '{request.name}' in database '{db_name}': {exc}")
         raise HTTPException(status_code=500, detail="Failed to create storage")
 
 
@@ -492,7 +527,7 @@ def get_storage_metadata(
     Raises:
         HTTPException: If the database or storage is not found.
     """
-    log.info("Get storage metadata request for '%s' in database '%s'", storage_name, db_name)
+    log.info(f"Get storage metadata request for '{storage_name}' in database '{db_name}'")
     db = get_database(db_name)
     storage = get_storage(db, storage_name, storage_type)
     metadata = {
@@ -523,15 +558,15 @@ def delete_storage(db_name: str, storage_name: str):
     log.info("Delete storage request for '%s' in database '%s'", storage_name, db_name)
     db = get_database(db_name)
     if storage_name not in db:
-        log.warning("Storage '%s' not found in database '%s'", storage_name, db_name)
+        log.warning(f"Storage '{storage_name}' not found in database '{db_name}'")
         raise HTTPException(status_code=404, detail=f"Storage '{storage_name}' not found")
 
     try:
         del db[storage_name]
-        log.info("Deleted storage '%s' from database '%s'", storage_name, db_name)
+        log.info(f"Deleted storage '{storage_name}' from database '{db_name}'")
         return {"status": "Success", "message": f"Deleted storage '{storage_name}'"}
     except Exception as exc:
-        log.error("Failed to delete storage '%s' from database '%s': %s", storage_name, db_name, exc)
+        log.error(f"Failed to delete storage '{storage_name}' from database '{db_name}': {exc}")
         raise HTTPException(status_code=500, detail="Failed to delete storage")
 
 
@@ -559,7 +594,7 @@ def list_storage_items(
     Raises:
         HTTPException: If the database or storage is not found.
     """
-    log.info("List items request for storage '%s' in database '%s' (limit=%s offset=%s)", storage_name, db_name, limit, offset)
+    log.info(f"List items request for storage '{storage_name}' in database '{db_name}' (limit={limit} offset={offset})")
     db = get_database(db_name)
     storage = get_storage(db, storage_name, storage_type)
 
@@ -603,7 +638,7 @@ def get_storage_item(
     Raises:
         HTTPException: If the database, storage, or item is not found.
     """
-    log.info("Get item request '%s' from storage '%s' in database '%s'", item_key, storage_name, db_name)
+    log.info(f"Get item request '{item_key}' from storage '{storage_name}' in database '{db_name}'")
     db = get_database(db_name)
     storage = get_storage(db, storage_name, storage_type)
 
@@ -612,17 +647,17 @@ def get_storage_item(
             result = {"key": item_key, "value": storage[item_key]}
         else:
             result = {"key": item_key, "value": table_row_as_dict(storage, item_key)}
-        log.info("Fetched item '%s' from storage '%s'", item_key, storage_name)
+        log.info(f"Fetched item '{item_key}' from storage '{storage_name}'")
         return result
     except KeyError:
-        log.warning("Item '%s' not found in storage '%s'", item_key, storage_name)
+        log.warning(f"Item '{item_key}' not found in storage '{storage_name}'")
         raise HTTPException(status_code=404, detail=f"Item '{item_key}' not found")
     except Exception as exc:
-        log.error("Failed to read item '%s' from storage '%s': %s", item_key, storage_name, exc)
+        log.error(f"Failed to read item '{item_key}' from storage '{storage_name}': {exc}")
         raise HTTPException(status_code=500, detail="Failed to read item")
 
 
-@app.put("/databases/{db_name}/storages/{storage_name}/items/{item_key}")
+@app.put("/databases/{db_name}/storages/{storage_name}/items/{item_key:path}")
 def upsert_storage_item(
     db_name: str,
     storage_name: str,
@@ -646,13 +681,13 @@ def upsert_storage_item(
     Raises:
         HTTPException: If the database or storage is not found, or invalid data.
     """
-    log.info("Upsert item request '%s' in storage '%s' of database '%s'", item_key, storage_name, db_name)
+    log.info(f"Upsert item request '{item_key}' in storage '{storage_name}' of database '{db_name}'")
     db = get_database(db_name)
     storage = get_storage(db, storage_name, storage_type)
     try:
         if isinstance(storage, JSONStorage):
             if not isinstance(payload.value, dict):
-                log.warning("Invalid value for JSON storage on item '%s'", item_key)
+                log.warning(f"Invalid value for JSON storage on item '{item_key}'")
                 raise HTTPException(status_code=400, detail="JSON storage requires a JSON object for value")
             storage[item_key] = payload.value
         else:
@@ -663,14 +698,14 @@ def upsert_storage_item(
                     payload.value[storage.columns[0]] = item_key
                 storage[item_key] = payload.value
             else:
-                log.warning("Invalid value type for table storage item '%s'", item_key)
+                log.warning(f"Invalid value type for table storage item '{item_key}'")
                 raise HTTPException(status_code=400, detail="Table storage requires a dict or list value")
-        log.info("Stored item '%s' in storage '%s'", item_key, storage_name)
+        log.info(f"Stored item '{item_key}' in storage '{storage_name}'")
         return {"status": "Success", "message": f"Stored item '{item_key}'"}
     except HTTPException:
         raise
     except Exception as exc:
-        log.error("Failed to store item '%s' in storage '%s': %s", item_key, storage_name, exc)
+        log.error(f"Failed to store item '{item_key}' in storage '{storage_name}': {exc}")
         raise HTTPException(status_code=500, detail="Failed to store item")
 
 
@@ -706,7 +741,7 @@ def bulk_upsert_storage_items(
     storage = get_storage(db, storage_name, storage_type)
 
     if not payload.items:
-        log.info("Bulk upsert request contained no items for storage '%s'", storage_name)
+        log.info(f"Bulk upsert request contained no items for storage '{storage_name}' in database '{db_name}'")
         return {"status": "Success", "message": "No items to upsert", "items": []}
 
     try:
@@ -714,7 +749,7 @@ def bulk_upsert_storage_items(
         if isinstance(storage, JSONStorage):
             for item_key, item_value in payload.items.items():
                 if not isinstance(item_value, dict):
-                    log.warning("Invalid JSON storage value for item '%s'", item_key)
+                    log.warning(f"Invalid JSON storage value for item '{item_key}' in storage '{storage_name}' in database '{db_name}'")
                     raise HTTPException(
                         status_code=400,
                         detail="JSON storage requires objects for all item values",
@@ -730,7 +765,7 @@ def bulk_upsert_storage_items(
                         item_value = {**item_value, storage.columns[0]: item_key}
                     storage[item_key] = item_value
                 else:
-                    log.warning("Invalid table storage value for item '%s'", item_key)
+                    log.warning(f"Invalid table storage value for item '{item_key}'")
                     raise HTTPException(
                         status_code=400,
                         detail="Table storage requires a dict or list for all item values",
@@ -738,10 +773,7 @@ def bulk_upsert_storage_items(
                 items_written.append(item_key)
 
         log.info(
-            "Bulk upsert completed for storage '%s' in database '%s'; items_written=%d",
-            storage_name,
-            db_name,
-            len(items_written),
+            f"Bulk upsert completed for storage '{storage_name}' in database '{db_name}'; items_written={len(items_written)}",
         )
         return {
             "status": "Success",
@@ -751,7 +783,7 @@ def bulk_upsert_storage_items(
     except HTTPException:
         raise
     except Exception as exc:
-        log.error("Failed bulk upsert for storage '%s' in database '%s': %s", storage_name, db_name, exc)
+        log.error(f"Failed bulk upsert for storage '{storage_name}' in database '{db_name}': {exc}")
         raise HTTPException(status_code=500, detail="Failed to upsert storage items")
 
 
@@ -777,18 +809,18 @@ def delete_storage_item(
     Raises:
         HTTPException: If the database, storage, or item is not found.
     """
-    log.info("Delete item request '%s' from storage '%s' in database '%s'", item_key, storage_name, db_name)
+    log.info(f"Delete item request '{item_key}' from storage '{storage_name}' in database '{db_name}'")
     db = get_database(db_name)
     storage = get_storage(db, storage_name, storage_type)
     try:
         del storage[item_key]
-        log.info("Deleted item '%s' from storage '%s'", item_key, storage_name)
+        log.info(f"Deleted item '{item_key}' from storage '{storage_name}' in database '{db_name}'")
         return {"status": "Success", "message": f"Deleted item '{item_key}'"}
     except KeyError:
-        log.warning("Item '%s' not found in storage '%s'", item_key, storage_name)
+        log.warning(f"Item '{item_key}' not found in storage '{storage_name}' in database '{db_name}'")
         raise HTTPException(status_code=404, detail=f"Item '{item_key}' not found")
     except Exception as exc:
-        log.error("Failed to delete item '%s' from storage '%s': %s", item_key, storage_name, exc)
+        log.error(f"Failed to delete item '{item_key}' from storage '{storage_name}' in database '{db_name}': {exc}")
         raise HTTPException(status_code=500, detail="Failed to delete item")
 
 
@@ -814,18 +846,18 @@ def query_storage_path(
     Raises:
         HTTPException: If the database or storage is not found, or not JSON storage.
     """
-    log.info("Path query request '%s' for storage '%s' in database '%s'", query, storage_name, db_name)
+    log.info(f"Path query request '{query}' for storage '{storage_name}' in database '{db_name}'")
     db = get_database(db_name)
     storage = get_storage(db, storage_name, storage_type)
     if not isinstance(storage, JSONStorage):
-        log.warning("Path queries requested for non-JSON storage '%s'", storage_name)
+        log.warning(f"Path queries requested for non-JSON storage '{storage_name}' in database '{db_name}'")
         raise HTTPException(status_code=400, detail="Path queries are only supported for JSON storage")
     try:
         results = list(storage.get_path(query, None))
-        log.info("Path query returned %s results for storage '%s'", len(results), storage_name)
+        log.info(f"Path query returned {len(results)} results for storage '{storage_name}' in database '{db_name}'")
         return {"path": query, "results": results}
     except Exception as exc:
-        log.error("Failed to query path '%s' in storage '%s': %s", query, storage_name, exc)
+        log.error(f"Failed to query path '{query}' in storage '{storage_name}' in database '{db_name}': {exc}")
         raise HTTPException(status_code=500, detail="Failed to query storage path")
 
 # Server daemon CLI using Click

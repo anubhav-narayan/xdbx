@@ -427,6 +427,9 @@ class JSONStorage(UserDict):
         if self.flag == 'r':
             raise RuntimeError('Refusing to write in read-only mode')
 
+        if "/" in key:
+            self.set_path(key, value)
+
         if type(value) == dict:
             import json
             if key not in self:
@@ -524,6 +527,53 @@ class JSONStorage(UserDict):
         path = path.strip(delimiter)
         keys = path.split(delimiter)
         return resolve(self, keys, default, delimiter=delimiter)
+    
+    def set_path(self, path: str, value: Any, delimiter: str = "/"):
+        """
+        Set a value in nested dict-like storage using a path expression.
+        Supports wildcards (*) for lists/dicts. Creates intermediate dicts/lists
+        as needed.
+
+        Args:
+            path (str): Delimited path string (e.g., "team/members/0/name").
+            value (Any): Value to assign at the path.
+            delimiter (str): Delimiter used to split the path.
+        """
+
+        def assign(current, keys, value, prefix):
+            if not keys:
+                yield delimiter.join(prefix)
+                return value
+
+            key, rest = keys[0], keys[1:]
+
+            if key == "*":
+                if isinstance(current, dict):
+                    for subkey in current:
+                        current[subkey] = assign(current[subkey], rest, value, prefix + [str(subkey)])
+                        yield delimiter.join(prefix + [str(subkey)])
+                elif isinstance(current, list):
+                    for idx in range(len(current)):
+                        current[idx] = assign(current[idx], rest, value, prefix + [str(idx)])
+                        yield delimiter.join(prefix + [str(idx)])
+                return current
+            else:
+                if isinstance(current, dict):
+                    if key not in current:
+                        current[key] = {} if rest else None
+                    current[key] = assign(current[key], rest, value, prefix + [key])
+                    yield delimiter.join(prefix + [key])
+                elif isinstance(current, list):
+                    idx = int(key)
+                    while len(current) <= idx:
+                        current.append({})
+                    current[idx] = assign(current[idx], rest, value, prefix + [str(idx)])
+                    yield delimiter.join(prefix + [str(idx)])
+                return current
+
+        path = path.strip(delimiter)
+        keys = path.split(delimiter)
+        yield from assign(self, keys, value, prefix=[])
 
     def get_path_value(self, key, path, default=None, delimiter="/"):
         """Get a single value at the given path for the specified key."""
@@ -539,7 +589,7 @@ class JSONStorage(UserDict):
                 return default
         return current
 
-    def set_path(self, key, path, value, delimiter="/"):
+    def _set_path(self, key, path, value, delimiter="/"):
         """Set a value at the given path for the specified key."""
         if key not in self:
             raise KeyError(f"Key {key} not found")

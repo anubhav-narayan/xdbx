@@ -146,7 +146,7 @@ class Database(UserDict):
         if do_log:
             logger.debug(f"Closing {self}")
         if hasattr(self, 'conn') and self.conn is not None:
-            if self.conn.autocommit and not force:
+            if self.conn.autocommit and not force and self.conn.transaction_depth == 0:
                 # typically calls to commit are non-blocking when autocommit is
                 # used.  However, we need to block on close() to ensure any
                 # awaiting exceptions are handled and that all data is
@@ -161,5 +161,5 @@ class Database(UserDict):
 
         DEL_ITEM = f'DROP TABLE "{table_name}"'
         self.conn.execute(DEL_ITEM)
-        if self.conn.autocommit:
-            self.commit()
+        if self.conn.autocommit and self.conn.transaction_depth == 0:
+            self.conn.commit()

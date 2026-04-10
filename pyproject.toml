@@ -42,6 +42,7 @@ xdbx-server = "xdbx.service.rest_service:cli"
 [tool.poetry.group.dev.dependencies]
 lark = "^1.2.2"
 pytest = "^9.0.0"
+httpx = "^0.28.1"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
