@@ -67,7 +67,7 @@ current_db = None
 current_storage = None
 
 @click_shell.shell(
-    prompt=lambda: f"{prompt_base}{':' + current_db if current_db else ''}{"/" + current_storage if current_storage else ''}{prompt_suffix}",
+    prompt=lambda: f"{prompt_base}{':' + current_db if current_db else ''}{'/' + current_storage if current_storage else ''}{prompt_suffix}",
     intro='XDBX REST Shell v1.0',
     on_finished=cleanup,
 )
