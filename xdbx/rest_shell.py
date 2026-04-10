@@ -14,6 +14,7 @@ local_storage: list = []
 def cleanup(ctx):
     for x in local_storage:
         api_request(ctx.obj['base_url'], 'POST', f'/databases/{urllib.parse.quote(x)}/close')
+    local_storage.clear()
     click.echo("Shutting down REST shell...")
 
 
@@ -125,7 +126,7 @@ def create_database(ctx, autocommit, journal_mode, flag, memory, db):
 def close_database(ctx, db):
     response = api_request(ctx.obj['base_url'], 'POST', f'/databases/{urllib.parse.quote(db)}/close')
     print_response(response)
-    local_storage.remove(db) if db in local_storage else None
+    local_storage.remove(db)
 
 
 @cli.command('ls', short_help='List contents of current context')
