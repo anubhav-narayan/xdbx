@@ -87,6 +87,7 @@ class TestDatabase:
 
         with pytest.raises(RuntimeError, match="boom"):
             with Transaction("txn", db.conn):
+                assert db.conn.transaction_depth > 0
                 storage["a"] = {"value": 1}
                 raise RuntimeError("boom")
 

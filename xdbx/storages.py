@@ -21,9 +21,7 @@ Classes:
         Allows dict-like querying of views, including slices, column
         selection, and filtering.
 """
-from typing import Any, Dict, List, Optional, Union
-
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, Optional, Union, List
 
 from .threads import SqliteMultiThread
 from collections import UserDict
