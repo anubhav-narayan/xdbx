@@ -246,7 +246,7 @@ class SqliteMultiThread(Thread):
         self._sqlitedict_thread_initialized = None
         self.timeout = timeout
         self.transaction_depth = 0
-        self.log = logging.getLogger('xdbx.SqliteMultithread')
+        self.log = logging.getLogger('db86.SqliteMultithread')
         self.start()
 
     def run(self):

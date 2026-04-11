@@ -1,0 +1,722 @@
+"""
+Stress and Performance Tests for DB86
+
+This module contains comprehensive tests for stress testing and performance
+benchmarking of db86. Tests are organized by marker:
+
+- @pytest.mark.stress — Stress tests (heavy load)
+- @pytest.mark.performance — Performance benchmarks
+- @pytest.mark.slow — Slow tests (>1 second)
+
+Run with:
+    pytest tests/test_stress_and_performance.py -v
+    pytest tests/test_stress_and_performance.py -m stress
+    pytest tests/test_stress_and_performance.py -m performance
+    pytest -m "performance and not slow"  # Quick perf tests
+"""
+
+import pytest
+import time
+import tempfile
+import os
+from typing import Generator, Dict, List, Tuple
+from db86 import Database
+import statistics
+
+
+# ============================================================================
+# FIXTURES FOR STRESS/PERFORMANCE TESTING
+# ============================================================================
+
+@pytest.fixture
+def perf_db_memory() -> Generator[Database, None, None]:
+    """In-memory database optimized for performance testing."""
+    db = Database(
+        ":memory:",
+        autocommit=False,  # Batch operations
+        journal_mode="WAL"
+    )
+    yield db
+    db.close(do_log=False, force=True)
+
+
+@pytest.fixture
+def perf_db_file() -> Generator[Tuple[Database, str], None, None]:
+    """File-based database optimized for performance testing."""
+    fd, path = tempfile.mkstemp(suffix='.db')
+    os.close(fd)
+    
+    db = Database(
+        path,
+        autocommit=False,
+        journal_mode="WAL"
+    )
+    yield db, path
+    
+    try:
+        db.close(do_log=False, force=True)
+        os.unlink(path)
+        # Clean up WAL files
+        for suffix in ['-wal', '-shm']:
+            try:
+                os.unlink(path + suffix)
+            except:
+                pass
+    except:
+        pass
+
+
+@pytest.fixture
+def large_dataset() -> Dict[str, Dict]:
+    """Generate 10K test records."""
+    data = {}
+    for i in range(10000):
+        data[f'record_{i:06d}'] = {
+            'id': i,
+            'name': f'User_{i}',
+            'email': f'user{i}@example.com',
+            'age': 20 + (i % 50),
+            'department': ['eng', 'sales', 'hr', 'marketing'][i % 4],
+            'salary': 50000 + (i * 10),
+            'active': i % 2 == 0,
+            'tags': [f'tag{j}' for j in range(i % 5)],
+            'metadata': {
+                'created': '2024-01-01',
+                'modified': f'2024-{(i % 12) + 1:02d}-01',
+                'status': 'active' if i % 3 == 0 else 'inactive',
+            }
+        }
+    return data
+
+
+@pytest.fixture
+def huge_dataset() -> Dict[str, Dict]:
+    """Generate 100K test records."""
+    data = {}
+    for i in range(100000):
+        data[f'record_{i:07d}'] = {
+            'id': i,
+            'name': f'User_{i}',
+            'email': f'user{i}@example.com',
+            'age': 20 + (i % 50),
+            'department': ['eng', 'sales', 'hr', 'marketing'][i % 4],
+            'salary': 50000 + (i * 10),
+            'active': i % 2 == 0,
+            'tags': [f'tag{j}' for j in range(i % 5)],
+        }
+    return data
+
+
+# ============================================================================
+# HELPER CLASSES FOR MEASUREMENT
+# ============================================================================
+
+class PerformanceMetrics:
+    """Collect and analyze performance metrics."""
+    
+    def __init__(self, name: str):
+        self.name = name
+        self.times: List[float] = []
+        self.memory_usage: List[float] = []
+        self.start_time: float = 0
+    
+    def start(self):
+        """Start timing."""
+        self.start_time = time.perf_counter()
+    
+    def stop(self):
+        """Stop timing and record result."""
+        elapsed = (time.perf_counter() - self.start_time) * 1000  # Convert to ms
+        self.times.append(elapsed)
+        return elapsed
+    
+    @property
+    def avg_ms(self) -> float:
+        """Average time in milliseconds."""
+        if not self.times:
+            return 0
+        return statistics.mean(self.times)
+    
+    @property
+    def min_ms(self) -> float:
+        """Minimum time in milliseconds."""
+        return min(self.times) if self.times else 0
+    
+    @property
+    def max_ms(self) -> float:
+        """Maximum time in milliseconds."""
+        return max(self.times) if self.times else 0
+    
+    @property
+    def median_ms(self) -> float:
+        """Median time in milliseconds."""
+        if not self.times:
+            return 0
+        return statistics.median(self.times)
+    
+    @property
+    def stdev_ms(self) -> float:
+        """Standard deviation in milliseconds."""
+        if len(self.times) < 2:
+            return 0
+        return statistics.stdev(self.times)
+    
+    def report(self) -> str:
+        """Generate performance report."""
+        return (
+            f"{self.name}:\n"
+            f"  Count:  {len(self.times)}\n"
+            f"  Avg:    {self.avg_ms:.2f} ms\n"
+            f"  Min:    {self.min_ms:.2f} ms\n"
+            f"  Max:    {self.max_ms:.2f} ms\n"
+            f"  Median: {self.median_ms:.2f} ms\n"
+            f"  StDev:  {self.stdev_ms:.2f} ms"
+        )
+
+
+# ============================================================================
+# STRESS TESTS — Heavy Load
+# ============================================================================
+
+@pytest.mark.stress
+@pytest.mark.slow
+class TestStressInsert:
+    """Stress test insert operations."""
+    
+    def test_bulk_insert_10k_items(self, perf_db_memory, large_dataset):
+        """Insert 10K items in single transaction."""
+        storage = perf_db_memory['users']
+        
+        start = time.perf_counter()
+        for key, value in large_dataset.items():
+            storage[key] = value
+        perf_db_memory.conn.commit()
+        elapsed = (time.perf_counter() - start) * 1000
+        
+        # Verify all items inserted
+        assert len(storage) == 10000
+        
+        # Performance assertion: Should complete in <5 seconds
+        assert elapsed < 5000, f"Insert 10K items took {elapsed:.0f}ms"
+        
+        print(f"\n✓ Inserted 10,000 items in {elapsed:.0f}ms ({elapsed/10000:.2f}ms/item)")
+    
+    def test_bulk_insert_100k_items(self, perf_db_memory, huge_dataset):
+        """Insert 100K items in batches (stress test)."""
+        storage = perf_db_memory['users']
+        
+        metrics = PerformanceMetrics('Insert 100K items (batched)')
+        batch_size = 10000
+        
+        start = time.perf_counter()
+        
+        for i, (key, value) in enumerate(huge_dataset.items()):
+            storage[key] = value
+            
+            # Commit every 10K items
+            if (i + 1) % batch_size == 0:
+                perf_db_memory.conn.commit()
+        
+        perf_db_memory.conn.commit()
+        total_time = (time.perf_counter() - start) * 1000
+        
+        assert len(storage) == 100000
+        assert total_time < 30000, f"Insert 100K items took {total_time:.0f}ms"
+        
+        print(f"\n✓ Inserted 100,000 items in {total_time:.0f}ms ({total_time/100000:.2f}ms/item)")
+    
+    def test_individual_inserts_1k(self, perf_db_memory):
+        """Test 1K individual insert-commit cycles (slow path)."""
+        storage = perf_db_memory['test']
+        
+        metrics = PerformanceMetrics('Individual inserts with commit')
+        
+        for i in range(1000):
+            metrics.start()
+            storage[f'key_{i}'] = {'value': i}
+            perf_db_memory.conn.commit()
+            metrics.stop()
+        
+        assert len(storage) == 1000
+        print(f"\n{metrics.report()}")
+        
+        # Individual inserts should average <5ms each
+        assert metrics.avg_ms < 5, f"Individual inserts averaged {metrics.avg_ms:.2f}ms"
+
+
+@pytest.mark.stress
+@pytest.mark.slow
+class TestStressQuery:
+    """Stress test query operations."""
+    
+    def test_sequential_read_10k(self, perf_db_memory, large_dataset):
+        """Read all 10K items sequentially."""
+        storage = perf_db_memory['items']
+        
+        # Populate
+        for key, value in large_dataset.items():
+            storage[key] = value
+        perf_db_memory.conn.commit()
+        
+        # Measure read performance
+        start = time.perf_counter()
+        count = 0
+        for key, value in storage.items():
+            count += 1
+        elapsed = (time.perf_counter() - start) * 1000
+        
+        assert count == 10000
+        assert elapsed < 2000, f"Read 10K items took {elapsed:.0f}ms"
+        
+        print(f"\n✓ Read 10,000 items in {elapsed:.0f}ms ({elapsed/10000:.3f}ms/item)")
+    
+    def test_random_lookups_10k(self, perf_db_memory, large_dataset):
+        """Random key lookups on 10K item dataset."""
+        storage = perf_db_memory['items']
+        
+        # Populate
+        for key, value in large_dataset.items():
+            storage[key] = value
+        perf_db_memory.conn.commit()
+        
+        # Measure lookup performance
+        keys = list(large_dataset.keys())
+        metrics = PerformanceMetrics('Random key lookups')
+        
+        for key in keys[::10]:  # Sample every 10th key
+            metrics.start()
+            value = storage[key]
+            metrics.stop()
+        
+        print(f"\n{metrics.report()}")
+        
+        # Average lookup should be <10ms
+        assert metrics.avg_ms < 10, f"Average lookup took {metrics.avg_ms:.2f}ms"
+    
+    def test_full_table_scan_100k(self, perf_db_memory, huge_dataset):
+        """Full table scan of 100K items."""
+        storage = perf_db_memory['items']
+        
+        # Populate in batches
+        batch_size = 10000
+        for i, (key, value) in enumerate(huge_dataset.items()):
+            storage[key] = value
+            if (i + 1) % batch_size == 0:
+                perf_db_memory.conn.commit()
+        perf_db_memory.conn.commit()
+        
+        # Measure scan performance
+        start = time.perf_counter()
+        count = 0
+        for key in storage.keys():
+            count += 1
+        elapsed = (time.perf_counter() - start) * 1000
+        
+        assert count == 100000
+        print(f"\n✓ Full scan of 100,000 items in {elapsed:.0f}ms ({elapsed/100000:.3f}ms/item)")
+
+
+@pytest.mark.stress
+@pytest.mark.slow
+class TestStressConcurrency:
+    """Stress test concurrent access patterns."""
+    
+    def test_alternating_read_write_1k(self, perf_db_memory):
+        """Alternate between reads and writes."""
+        storage = perf_db_memory['data']
+        
+        # Initial data
+        for i in range(100):
+            storage[f'initial_{i}'] = {'value': i}
+        perf_db_memory.conn.commit()
+        
+        # Alternating operations
+        for i in range(1000):
+            if i % 2 == 0:
+                # Write
+                storage[f'key_{i}'] = {'value': i}
+            else:
+                # Read (arbitrary key)
+                try:
+                    _ = storage[f'initial_{i % 100}']
+                except KeyError:
+                    pass
+            
+            if i % 100 == 0:
+                perf_db_memory.conn.commit()
+        
+        perf_db_memory.conn.commit()
+        
+        # Should complete without deadlock
+        assert len(storage) > 100
+
+
+@pytest.mark.stress
+@pytest.mark.slow
+class TestStressMemory:
+    """Stress test memory usage patterns."""
+    
+    def test_large_documents(self, perf_db_memory):
+        """Test handling of large JSON documents."""
+        storage = perf_db_memory['large_docs']
+        
+        # Create documents with nested structures
+        for i in range(100):
+            large_doc = {
+                'id': i,
+                'data': {
+                    'nested_level_1': {
+                        'nested_level_2': {
+                            'nested_level_3': {
+                                'values': list(range(100)),
+                                'matrix': [[j for j in range(100)] for _ in range(10)]
+                            }
+                        }
+                    },
+                    'arrays': [
+                        {'item': j, 'values': list(range(50))}
+                        for j in range(50)
+                    ]
+                }
+            }
+            storage[f'doc_{i}'] = large_doc
+        
+        perf_db_memory.conn.commit()
+        
+        assert len(storage) == 100
+        # Verify document retrieval
+        doc = storage['doc_0']
+        assert doc['id'] == 0
+        assert doc['data']['nested_level_1']['nested_level_2']['nested_level_3']['values'] == list(range(100))
+    
+    def test_many_small_documents(self, perf_db_memory):
+        """Test handling many small documents."""
+        storage = perf_db_memory['small_docs']
+        
+        # Insert many small documents
+        for i in range(50000):
+            storage[f'doc_{i}'] = {'id': i, 'value': 'x' * 10}
+            
+            if (i + 1) % 5000 == 0:
+                perf_db_memory.conn.commit()
+        
+        perf_db_memory.conn.commit()
+        
+        assert len(storage) == 50000
+        print(f"\n✓ Successfully stored 50,000 small documents")
+
+
+# ============================================================================
+# PERFORMANCE BENCHMARKS
+# ============================================================================
+
+@pytest.mark.performance
+class TestPerformanceBenchmarks:
+    """Performance benchmarks for various operations."""
+    
+    def test_benchmark_insert_throughput(self, perf_db_memory):
+        """Benchmark insert throughput (items/second)."""
+        storage = perf_db_memory['bench']
+        
+        # Warm up
+        storage['warmup'] = {'x': 1}
+        perf_db_memory.conn.commit()
+        
+        # Benchmark: 1000 inserts
+        start = time.perf_counter()
+        for i in range(1000):
+            storage[f'bench_{i}'] = {'id': i, 'value': f'data_{i}'}
+        perf_db_memory.conn.commit()
+        elapsed = time.perf_counter() - start
+        
+        throughput = 1000 / elapsed
+        
+        print(f"\n✓ Insert throughput: {throughput:.0f} items/second")
+        assert throughput > 100, f"Throughput too low: {throughput:.0f}/s"
+    
+    def test_benchmark_lookup_latency(self, perf_db_memory, large_dataset):
+        """Benchmark key lookup latency (ms/lookup)."""
+        storage = perf_db_memory['bench']
+        
+        # Populate
+        for key, value in large_dataset.items():
+            storage[key] = value
+        perf_db_memory.conn.commit()
+        
+        # Benchmark: 1000 random lookups
+        keys = list(large_dataset.keys())
+        metrics = PerformanceMetrics('Key lookup latency')
+        
+        for key in keys[::10]:  # Sample every 10th key
+            metrics.start()
+            _ = storage[key]
+            metrics.stop()
+        
+        print(f"\n{metrics.report()}")
+        
+        # Average latency should be <10ms
+        assert metrics.avg_ms < 10, f"Average latency: {metrics.avg_ms:.2f}ms"
+    
+    def test_benchmark_iteration_speed(self, perf_db_memory, large_dataset):
+        """Benchmark iteration speed (items/second)."""
+        storage = perf_db_memory['bench']
+        
+        # Populate
+        for key, value in large_dataset.items():
+            storage[key] = value
+        perf_db_memory.conn.commit()
+        
+        # Benchmark: iterate all items
+        start = time.perf_counter()
+        count = 0
+        for key, value in storage.items():
+            count += 1
+        elapsed = time.perf_counter() - start
+        
+        throughput = count / elapsed
+        
+        print(f"\n✓ Iteration throughput: {throughput:.0f} items/second")
+        assert throughput > 1000, f"Throughput too low: {throughput:.0f}/s"
+    
+    def test_benchmark_json_serialization(self, perf_db_memory):
+        """Benchmark JSON serialization speed."""
+        storage = perf_db_memory['bench']
+        
+        # Create complex document
+        complex_doc = {
+            'nested': {
+                'level1': {
+                    'level2': {
+                        'data': list(range(100)),
+                        'text': 'x' * 1000
+                    }
+                },
+                'arrays': [
+                    {'item': i, 'values': list(range(10))}
+                    for i in range(100)
+                ]
+            }
+        }
+        
+        # Benchmark: 1000 writes of complex document
+        metrics = PerformanceMetrics('JSON serialization')
+        
+        for i in range(1000):
+            metrics.start()
+            storage[f'complex_{i}'] = complex_doc
+            metrics.stop()
+        
+        perf_db_memory.conn.commit()
+        
+        print(f"\n{metrics.report()}")
+        
+        assert metrics.avg_ms < 5, f"Average serialization: {metrics.avg_ms:.2f}ms"
+    
+    def test_benchmark_commit_latency(self, perf_db_memory):
+        """Benchmark commit latency."""
+        storage = perf_db_memory['bench']
+        
+        metrics = PerformanceMetrics('Commit latency')
+        
+        for i in range(100):
+            # Insert batch of 10 items
+            for j in range(10):
+                storage[f'item_{i}_{j}'] = {'id': f'{i}_{j}'}
+            
+            # Measure commit time
+            metrics.start()
+            perf_db_memory.conn.commit()
+            metrics.stop()
+        
+        print(f"\n{metrics.report()}")
+        
+        # Commits should be fast even with batch operations
+        assert metrics.avg_ms < 50, f"Average commit: {metrics.avg_ms:.2f}ms"
+
+
+@pytest.mark.performance
+class TestPerformanceComparison:
+    """Compare performance of different approaches."""
+    
+    def test_batch_vs_individual_commits(self, perf_db_memory):
+        """Compare batch commits vs individual commits."""
+        # Test 1: Batch commit
+        storage1 = perf_db_memory['batch']
+        start1 = time.perf_counter()
+        for i in range(1000):
+            storage1[f'key_{i}'] = {'value': i}
+        perf_db_memory.conn.commit()
+        batch_time = time.perf_counter() - start1
+        
+        # Test 2: Individual commits (slower path)
+        # Would require autocommit=True, skip for now
+        
+        print(f"\n✓ Batch commit (1000 items): {batch_time*1000:.0f}ms")
+        assert batch_time < 2, f"Batch operation too slow: {batch_time:.2f}s"
+    
+    def test_memory_vs_file_performance(self, perf_db_memory, perf_db_file):
+        """Compare memory vs file-based database performance."""
+        dataset = {f'key_{i}': {'value': i} for i in range(1000)}
+        
+        # Memory database
+        storage_mem = perf_db_memory['test']
+        start_mem = time.perf_counter()
+        for key, value in dataset.items():
+            storage_mem[key] = value
+        perf_db_memory.conn.commit()
+        mem_time = time.perf_counter() - start_mem
+        
+        # File database
+        db_file, path = perf_db_file
+        storage_file = db_file['test']
+        start_file = time.perf_counter()
+        for key, value in dataset.items():
+            storage_file[key] = value
+        db_file.conn.commit()
+        file_time = time.perf_counter() - start_file
+        
+        print(f"\n✓ Memory DB (1000 items): {mem_time*1000:.0f}ms")
+        print(f"✓ File DB   (1000 items): {file_time*1000:.0f}ms")
+        print(f"✓ Ratio: {file_time/mem_time:.1f}x")
+        
+        # File DB should be reasonable (within 10x of memory)
+        assert file_time < mem_time * 10
+
+
+# ============================================================================
+# STRESS TEST EDGE CASES
+# ============================================================================
+
+@pytest.mark.stress
+class TestStressEdgeCases:
+    """Stress test edge cases and boundary conditions."""
+    
+    def test_very_long_keys(self, perf_db_memory):
+        """Test with very long key names."""
+        storage = perf_db_memory['test']
+        
+        # Create keys up to 1000 characters
+        for i in range(100):
+            long_key = f'key_{"x" * 1000}_{i}'
+            storage[long_key] = {'index': i}
+        
+        perf_db_memory.conn.commit()
+        
+        assert len(storage) == 100
+    
+    def test_very_large_values(self, perf_db_memory):
+        """Test with very large JSON values."""
+        storage = perf_db_memory['test']
+        
+        # Create large values (1MB each)
+        for i in range(10):
+            large_value = {
+                'data': 'x' * 1000000,  # 1MB
+                'index': i
+            }
+            storage[f'large_{i}'] = large_value
+        
+        perf_db_memory.conn.commit()
+        
+        assert len(storage) == 10
+        
+        # Verify retrieval
+        retrieved = storage['large_0']
+        assert len(retrieved['data']) == 1000000
+    
+    def test_deeply_nested_documents(self, perf_db_memory):
+        """Test with deeply nested JSON structures."""
+        storage = perf_db_memory['test']
+        
+        # Create deeply nested structure (100 levels)
+        doc = {'level_0': {'value': 0}}
+        current = doc['level_0']
+        for i in range(1, 100):
+            current[f'level_{i}'] = {'value': i}
+            current = current[f'level_{i}']
+        
+        storage['deep'] = doc
+        perf_db_memory.conn.commit()
+        
+        # Verify retrieval
+        retrieved = storage['deep']
+        assert retrieved['level_0']['level_1']['level_2']['value'] == 2
+        # Verify Path access
+        retrieved = storage['deep/level_0/level_1/level_2/value']
+        assert retrieved == {'deep/level_0/level_1/level_2/value' : 2}
+    
+    def test_many_transactions(self, perf_db_memory):
+        """Test handling of many small transactions."""
+        storage = perf_db_memory['test']
+        
+        # Execute 1000 small transactions
+        for txn in range(1000):
+            storage[f'txn_{txn}'] = {'transaction': txn}
+            if txn % 100 == 0:
+                perf_db_memory.conn.commit()
+        
+        perf_db_memory.conn.commit()
+        
+        assert len(storage) == 1000
+
+
+# ============================================================================
+# ENDURANCE TESTS
+# ============================================================================
+
+@pytest.mark.stress
+@pytest.mark.slow
+class TestEndurance:
+    """Long-running endurance tests."""
+    
+    def test_sustained_write_load(self, perf_db_memory):
+        """Sustained write load over time."""
+        storage = perf_db_memory['data']
+        
+        start = time.perf_counter()
+        
+        # Write for ~10 seconds worth of operations
+        for i in range(5000):
+            storage[f'item_{i}'] = {
+                'index': i,
+                'timestamp': time.time(),
+                'data': f'value_{i}'
+            }
+            
+            if (i + 1) % 500 == 0:
+                perf_db_memory.conn.commit()
+        
+        perf_db_memory.conn.commit()
+        elapsed = time.perf_counter() - start
+        
+        throughput = 5000 / elapsed
+        print(f"\n✓ Sustained write throughput: {throughput:.0f} items/sec over {elapsed:.1f}s")
+        
+        assert len(storage) == 5000
+        assert throughput > 100, f"Throughput too low: {throughput:.0f}/s"
+    
+    def test_sustained_read_load(self, perf_db_memory, large_dataset):
+        """Sustained read load over time."""
+        storage = perf_db_memory['data']
+        
+        # Populate
+        for key, value in large_dataset.items():
+            storage[key] = value
+        perf_db_memory.conn.commit()
+        
+        start = time.perf_counter()
+        keys = list(large_dataset.keys())
+        
+        # Read same data multiple times
+        reads = 0
+        for iteration in range(10):  # 10 full iterations
+            for key in keys:
+                _ = storage[key]
+                reads += 1
+        
+        elapsed = time.perf_counter() - start
+        throughput = reads / elapsed
+        
+        print(f"\n✓ Sustained read throughput: {throughput:.0f} reads/sec over {elapsed:.1f}s")
+        assert throughput > 1000, f"Throughput too low: {throughput:.0f}/s"
+

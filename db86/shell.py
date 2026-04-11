@@ -85,7 +85,7 @@ def cleanup(ctx):
 
 @click_shell.shell(
     prompt='dbx> ',
-    intro='XDBX Management Shell v1.0',
+    intro='DB86 Management Shell v1.0',
     on_finished=cleanup,
 )
 @click.pass_context

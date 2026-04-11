@@ -1,4 +1,4 @@
-"""Interactive REST shell for XDBX REST service."""
+"""Interactive REST shell for DB86 REST service."""
 
 import json
 import urllib.error
@@ -68,18 +68,18 @@ current_storage = None
 
 @click_shell.shell(
     prompt=lambda: f"{prompt_base}{':' + current_db if current_db else ''}{'/' + current_storage if current_storage else ''}{prompt_suffix}",
-    intro='XDBX REST Shell v1.0',
+    intro='DB86 REST Shell v1.0',
     on_finished=cleanup,
 )
 @click.option(
     '--base-url',
     default='http://127.0.0.1:8000',
     show_default=True,
-    help='Base URL for the XDBX REST service.',
+    help='Base URL for the DB86 REST service.',
 )
 @click.pass_context
 def cli(ctx, base_url):
-    """Start the XDBX REST shell."""
+    """Start the DB86 REST shell."""
     ctx.ensure_object(dict)
     ctx.obj['base_url'] = base_url.rstrip('/')
     ctx.obj['current_db'] = None

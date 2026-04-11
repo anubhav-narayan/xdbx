@@ -449,6 +449,8 @@ class JSONStorage(UserDict):
 
     def __getitem__(self, key):
         import json
+        if "/" in key:
+            return [value for value in self.get_path(key)][0]
         GET_ITEM = f'SELECT "object" FROM "{self.name}" WHERE "key" = ?'
         item = self.__conn.select_one(GET_ITEM, (key,))
         if item is None:

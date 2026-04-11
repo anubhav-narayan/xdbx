@@ -22,7 +22,7 @@ logging.basicConfig(
     level=logging.DEBUG,
     format='%(levelname)s:\t[%(name)s] %(message)s'
 )
-log = logging.getLogger("XDBX REST Service")
+log = logging.getLogger("DB86 REST Service")
 
 
 def validate_storage_type(storage_type: str) -> str:
@@ -289,8 +289,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="XDBX REST Service",
-    description="REST service for XDBX based SQLite3 databases",
+    title="DB86 REST Service",
+    description="REST service for DB86 based SQLite3 databases",
     version='0.1.0',
     lifespan=lifespan,
 )
@@ -308,7 +308,7 @@ def health_check():
     system_metric = _get_system_metrics()
     return {
         "status": "Success",
-        "message": "XDBX REST Service is running",
+        "message": "DB86 REST Service is running",
         "service_version": "0.1.0",
         "databases_open": len(store),
         "system_metrics": system_metric,
@@ -865,7 +865,7 @@ def query_storage_path(
 @click.group()
 @click.pass_context
 def cli(ctx):
-    """XDBX REST Service daemon manager."""
+    """DB86 REST Service daemon manager."""
     ctx.obj = {}
 
 @cli.command(name="run")
@@ -883,17 +883,17 @@ def cli(ctx):
 @click.option("--reload", is_flag=True, default=False, help="Enable auto-reload for development (not recommended with workers > 1).")
 @click.pass_context
 def run(ctx, host: str, port: int, workers: int, logfile: Optional[str], loglevel: str, reload: bool):
-    """Run the XDBX REST service as a daemon with logging and worker configuration."""
+    """Run the DB86 REST service as a daemon with logging and worker configuration."""
     if reload and workers != 1:
         raise click.ClickException("Reload mode cannot be used with multiple workers.")
 
     _configure_service_logging(logfile, loglevel)
-    log.info("Starting XDBX REST service daemon on %s:%s with %s worker(s)", host, port, workers)
+    log.info("Starting DB86 REST service daemon on %s:%s with %s worker(s)", host, port, workers)
     if logfile:
         log.info("Service logs will be written to %s", logfile)
 
     config = uvicorn.Config(
-        "xdbx.service.rest_service:app",
+        "db86.service.rest_service:app",
         host=host,
         port=port,
         log_level=loglevel,
@@ -918,17 +918,17 @@ def run(ctx, host: str, port: int, workers: int, logfile: Optional[str], logleve
 @click.option("--reload", is_flag=True, default=False, help="Enable auto-reload for development (not recommended with workers > 1).")
 @click.pass_context
 def start(ctx, host: str, port: int, workers: int, logfile: Optional[str], loglevel: str, reload: bool):
-    """Run the XDBX REST service as a daemon with logging and worker configuration."""
+    """Run the DB86 REST service as a daemon with logging and worker configuration."""
     if reload and workers != 1:
         raise click.ClickException("Reload mode cannot be used with multiple workers.")
 
     _configure_service_logging(logfile, loglevel)
-    log.info("Starting XDBX REST service daemon on %s:%s with %s worker(s)", host, port, workers)
+    log.info("Starting DB86 REST service daemon on %s:%s with %s worker(s)", host, port, workers)
     if logfile:
         log.info("Service logs will be written to %s", logfile)
 
     config = uvicorn.Config(
-        "xdbx.service.rest_service:app",
+        "db86.service.rest_service:app",
         host=host,
         port=port,
         log_level=loglevel,
@@ -937,9 +937,9 @@ def start(ctx, host: str, port: int, workers: int, logfile: Optional[str], logle
     )
     server = uvicorn.Server(config)
     runner = Daemon(
-        'XDBX REST Service',
+        'DB86 REST Service',
         worker=server.run,
-        pidfile='xdbx_rest_service.pid',
+        pidfile='db86_rest_service.pid',
         work_dir='.',
         stdout_file=logfile if logfile and logfile != "-" else None,
         stderr_file=logfile if logfile and logfile != "-" else None,
@@ -947,21 +947,21 @@ def start(ctx, host: str, port: int, workers: int, logfile: Optional[str], logle
     )
     runner.do_action('start')
 
-@cli.command('stop', short_help='Stop the XDBX REST Service')
+@cli.command('stop', short_help='Stop the DB86 REST Service')
 @click.option('-f', '--force', help='Force Stop', is_flag=True, default=False)
 def stop(force):
-    daemon = Daemon('XDBX REST Service', pidfile='xdbx_rest_service.pid')
+    daemon = Daemon('DB86 REST Service', pidfile='db86_rest_service.pid')
     daemon.stop(force=force)
 
 
-@cli.command('status', short_help='XDBX REST Service Status')
+@cli.command('status', short_help='DB86 REST Service Status')
 @click.option('-j', '--json', help='Return Status JSON', default=False, is_flag=True)
 def status(json):
-    daemon = Daemon('XDBX REST Service', pidfile='xdbx_rest_service.pid')
+    daemon = Daemon('DB86 REST Service', pidfile='db86_rest_service.pid')
     daemon.status(json=json)
 
 
-@cli.command('restart', short_help='Restart XDBX REST Service')
+@cli.command('restart', short_help='Restart DB86 REST Service')
 @click.option('-f', '--force', help='Force Stop', is_flag=True, default=False)
 @click.option("--host", default="127.0.0.1", show_default=True, help="Host address to bind the REST service.")
 @click.option("--port", default=8000, show_default=True, type=int, help="Port to bind the REST service.")

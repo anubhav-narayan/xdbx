@@ -35,9 +35,9 @@ asyncclick = "8.1.8"
 daemonocle = "^1.2.3"
 
 [tool.poetry.scripts]
-sdbx = "xdbx.shell:cli"
-restx = "xdbx.rest_shell:cli"
-xdbx-server = "xdbx.service.rest_service:cli"
+db86-shell = "db86.shell:cli"
+db86-restx = "db86.rest_shell:cli"
+db86-server = "db86.service.rest_service:cli"
 
 [tool.poetry.group.dev.dependencies]
 lark = "^1.2.2"
@@ -50,5 +50,8 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.pytest.ini_options]
 markers = [
-    "unit: marks tests as unit tests"
+    "unit: marks tests as unit tests",
+    "stress: stress test (heavy load)",
+    "performance: performance benchmark",
+    "slow: slow test (>1 second)"
 ]

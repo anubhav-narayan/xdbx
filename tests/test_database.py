@@ -95,3 +95,49 @@ class TestDatabase:
         assert db.conn.transaction_depth == 0
         assert "a" not in storage
         db.close(do_log=False, force=True)
+    
+    def test_transaction_context_manager_savepoint(self):
+        db = Database(":memory:", autocommit=False, journal_mode="WAL")
+        storage = db["txn_rollback"]
+
+        with pytest.raises(RuntimeError, match="boom_2"):
+            storage.commit()
+            with Transaction("txn", db.conn) as txn:
+                try:
+                    storage["a"] = {"value": 1}
+                    txn.savepoint("sp1")
+                    storage["a"] = {"value": 2}
+                    raise RuntimeError("boom")
+                except RuntimeError:
+                    txn.rollback_to("sp1")
+                assert storage["a"]["value"] == 1
+                storage["b"] = {"value": 3}
+                raise RuntimeError("boom_2")
+                
+
+        assert db.conn.transaction_depth == 0
+        assert "a" not in storage
+        assert "b" not in storage
+        db.close(do_log=False, force=True)
+    
+    def test_transaction_context_manager_commit(self):
+        db = Database(":memory:", autocommit=False, journal_mode="WAL")
+        storage = db["txn_rollback"]
+
+        storage.commit()
+        with Transaction("txn", db.conn) as txn:
+            try:
+                storage["a"] = {"value": 1}
+                txn.savepoint("sp1")
+                storage["a"] = {"value": 2}
+            except Exception:
+                txn.rollback_to("sp1")
+            txn.release("sp1")
+            storage["b"] = {"value": 3}
+
+        assert db.conn.transaction_depth == 0
+        assert "a" in storage
+        assert storage["a"]["value"] == 2
+        assert "b" in storage
+        assert storage["b"]["value"] == 3
+        db.close(do_log=False, force=True)
